@@ -1,4 +1,4 @@
-import { formatAmount, roundHalfUp, type Minor } from "../lib/money";
+import { formatAmount, formatRate, roundHalfUp, type Minor } from "../lib/money";
 import type { Band, CalcLine, CalculationSnapshot, CompanyTaxIncentive, CorporateFinancials, Conversion, EmploymentIncomeLine, IncomeSource, ReliefClaim, ResidencyStatus, TaxRuleSet } from "../domain/types";
 
 /**
@@ -6,7 +6,8 @@ import type { Band, CalcLine, CalculationSnapshot, CompanyTaxIncentive, Corporat
  * so every snapshot is reproducible. All rule values are demo configuration until GMCA confirms them.
  */
 
-export const DEMO_ASSUMPTION = "Calculated with demo rules for this prototype. Not an official GMCA rule or a formal assessment.";
+export const DEMO_ASSUMPTION = "A calculation, not a formal assessment. GMCA assesses every return.";
+export const RULE_SOURCES = "Individual bands from the GMC Income Tax Act 2025 and the monthly TDS table from GMCA's TDS note. Reliefs, health contribution and other values are demo configuration.";
 
 export function progressiveTax(amount: Minor, bands: Band[]): Minor {
   let tax = 0;
@@ -18,8 +19,9 @@ export function progressiveTax(amount: Minor, bands: Band[]): Minor {
   return roundHalfUp(tax);
 }
 
+/** Monthly TDS brackets are inclusive at the top: ≤1,000 is 0%, >1,000 and ≤3,000 is 2%, and so on. */
 export function bracketFor(amount: Minor, bands: Band[]): Band | undefined {
-  return bands.find((b) => amount >= b.fromMinor && (b.toMinor === null || amount < b.toMinor));
+  return bands.find((b) => b.toMinor === null || amount <= b.toMinor);
 }
 
 export function pct(amount: Minor, ratePct: number): Minor {
@@ -38,7 +40,7 @@ export type IndividualInput = {
 export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, reportingCurrency: string, now = new Date().toISOString()): CalculationSnapshot {
   const lines: CalcLine[] = [];
   const warnings: string[] = [];
-  const assumptions = [DEMO_ASSUMPTION];
+  const assumptions = [DEMO_ASSUMPTION, RULE_SOURCES];
   const fmt = (m: Minor) => formatAmount(m, reportingCurrency);
 
   const employmentMinor = input.employment.reduce((s, e) => s + e.grossMinor, 0);
@@ -55,7 +57,7 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
       warnings.push(`${s.description || "An income source"} in ${s.currency} has no configured exchange rate yet, so it is left out of the totals.`);
       continue;
     }
-    const note = s.currency === reportingCurrency ? undefined : `${formatAmount(s.amountMinor, s.currency)} at ${conv.rate} (${conv.isDemoRate ? "demo rate" : conv.source}, ${conv.rateDate})`;
+    const note = s.currency === reportingCurrency ? undefined : `${formatAmount(s.amountMinor, s.currency)} at ${formatRate(conv.rate!, s.currency, reportingCurrency)} (${conv.isDemoRate ? "demo rate" : conv.source}, ${conv.rateDate})`;
     lines.push({ key: `src-${s.id}`, label: `${s.classification === "EXEMPT" ? "Exempt" : "Additional"} income · ${s.description || s.category}`, amountMinor: conv.reportingMinor, note });
     if (s.classification === "EXEMPT") exempt += conv.reportingMinor;
     else taxableOther += conv.reportingMinor;
@@ -89,8 +91,8 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
     assumptions.push("GMCA has recorded this taxpayer as non-resident. The non-resident rate is demo configuration pending GMCA's residency rules.");
   } else {
     tax = progressiveTax(chargeable, rules.individualBands);
-    lines.push({ key: "tax", label: "Tax on chargeable income (demo bands)", amountMinor: tax, tone: "total" });
-    if (input.residency === "NOT_DETERMINED") assumptions.push("Residency has not been determined by GMCA, so the standard demo bands apply. Nationality alone never changes the rate.");
+    lines.push({ key: "tax", label: "Tax on chargeable income (Income Tax Act bands)", amountMinor: tax, tone: "total" });
+    if (input.residency === "NOT_DETERMINED") assumptions.push("Residency has not been determined by GMCA, so the standard bands apply. Nationality alone never changes the rate.");
   }
 
   if (tdsMinor) lines.push({ key: "tds", label: "Less TDS reported by employers", amountMinor: -tdsMinor, tone: "credit" });
@@ -113,7 +115,7 @@ export function monthlyTds(reportingMinor: Minor, rules: TaxRuleSet, residency: 
   if (rules.tdsMethod === "BRACKET_WHOLE_AMOUNT") {
     const band = bracketFor(reportingMinor, rules.tdsBands);
     const rate = band?.ratePct ?? 0;
-    return { tdsMinor: pct(reportingMinor, rate), note: `${rate}% on whole month (demo table)` };
+    return { tdsMinor: pct(reportingMinor, rate), note: `${rate}% on the whole month (GMCA TDS table)` };
   }
   return { tdsMinor: progressiveTax(reportingMinor, rules.tdsBands), note: "Progressive monthly bands (demo)" };
 }
@@ -145,7 +147,7 @@ export function summariseMonthly(lines: { reportingMinor: Minor | null; tdsMinor
     creditsMinor: 0,
     balanceMinor: tds + health,
     warnings: pending ? [`${pending} employee${pending === 1 ? "" : "s"} paid in a currency without a configured rate.`] : [],
-    assumptions: [DEMO_ASSUMPTION]
+    assumptions: [DEMO_ASSUMPTION, RULE_SOURCES]
   };
 }
 
@@ -181,7 +183,7 @@ export function calculateCorporate(f: CorporateFinancials, rules: TaxRuleSet, in
     tone: "total",
     note: incentive ? `Incentive ${incentive.approvalReference}, recorded by GMCA, effective ${incentive.effectiveFrom} to ${incentive.effectiveTo}` : undefined
   });
-  const assumptions = [DEMO_ASSUMPTION, "Adjustments are free-text lines entered by the company. GMCA has not yet confirmed the corporate schedules or allowable expenses."];
+  const assumptions = [DEMO_ASSUMPTION, "The corporate rate and incentives are demo configuration.", "Adjustments are free-text lines entered by the company. GMCA has not yet confirmed the corporate schedules or allowable expenses."];
   return { id: "", kind: "CORPORATE", ruleSetId: rules.id, ruleSetVersion: rules.version, reportingCurrency, computedAt: now, lines, taxMinor: tax, creditsMinor: 0, balanceMinor: tax, warnings: profit < 0 ? ["The return shows a loss. Loss treatment is not configured."] : [], assumptions };
 }
 

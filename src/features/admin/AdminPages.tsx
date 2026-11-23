@@ -5,7 +5,7 @@ import { PERMISSIONS, ROLE_LABEL, ROLE_PERMISSIONS } from "../../domain/permissi
 import { resetDemoData } from "../../domain/store";
 import type { Band, BankMode, Db, IncomeCategory, IntegrationMode, ReliefRule, ResidencyStatus, Role, TaxRuleSet } from "../../domain/types";
 import { formatDate, formatDateTime } from "../../lib/format";
-import { formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
+import { formatMoney, formatRate, minorToInput, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
 import { addCurrency, addExchangeRate, createStaffUser, publishRuleSet, recordIncentive, revokeIncentive, setBankMode, setCurrencyEnabled, setIntegrationMode, setPlatformSetting, setResidency, setStaffRole, setUserStatus } from "../../services/admin";
 import { ruleSetForYear } from "../../services/calc";
@@ -239,7 +239,7 @@ export function TaxConfigPage() {
   return (
     <>
       <PageHeader title="Tax configuration" lead="Rates and rules used by the calculation engine. Publishing creates a new version; submitted returns keep the version they were calculated with." />
-      <Alert tone="action" title="Demo configuration">These values make the prototype work. They are not confirmed GMCA rules.</Alert>
+      <Alert tone="review" title="Where these values come from">Individual bands: GMC Income Tax Act 2025. Monthly TDS table: GMCA TDS note (brackets inclusive at the top, rate on the whole month). Health contribution, non-resident rate, reliefs and the corporate rate are demo configuration until GMCA confirms them.</Alert>
       <SelectField label="Rules for financial year" value={String(year)} onChange={(e) => setYear(Number(e.target.value))} className="w-56">
         {[...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => b - a).map((y) => <option key={y} value={y}>{y}</option>)}
       </SelectField>
@@ -372,11 +372,12 @@ export function ReliefConfigPage() {
 
 function PlatformSettings({ db }: { db: Db }) {
   const run = useRun();
-  const [s, setS] = useState({ currentFilingYear: db.config.currentFilingYear, currentPayrollPeriod: db.config.currentPayrollPeriod, informationRequestDays: db.config.informationRequestDays, conversionDateRule: db.config.conversionDateRule });
+  const [s, setS] = useState({ currentFilingYear: db.config.currentFilingYear, filingDeadlineMonthDay: db.config.filingDeadlineMonthDay, currentPayrollPeriod: db.config.currentPayrollPeriod, informationRequestDays: db.config.informationRequestDays, conversionDateRule: db.config.conversionDateRule });
   return (
-    <Section title="Filing settings" description="Deadlines are not configured: GMCA sets them by notice and they are an open question.">
+    <Section title="Filing settings" description="The individual filing deadline is shown to taxpayers on their overview. Penalties for late filing are not configured.">
       <form className="grid max-w-3xl gap-4 border border-line bg-surface p-5 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); run((d, a) => setPlatformSetting(d, a, s), "Settings saved"); }}>
         <TextField label="Open individual filing year" type="number" value={String(s.currentFilingYear)} onChange={(e) => setS({ ...s, currentFilingYear: Number(e.target.value) })} />
+        <TextField label="Return deadline in the year of assessment (MM-DD)" value={s.filingDeadlineMonthDay} onChange={(e) => setS({ ...s, filingDeadlineMonthDay: e.target.value })} hint={`YA ${s.currentFilingYear + 1} returns are due ${s.filingDeadlineMonthDay}-${s.currentFilingYear + 1}.`} />
         <TextField label="Current payroll month" type="month" value={s.currentPayrollPeriod} onChange={(e) => setS({ ...s, currentPayrollPeriod: e.target.value })} />
         <TextField label="Default days to answer an information request" type="number" value={String(s.informationRequestDays)} onChange={(e) => setS({ ...s, informationRequestDays: Number(e.target.value) })} />
         <SelectField label="Currency conversion date" value={s.conversionDateRule} onChange={(e) => setS({ ...s, conversionDateRule: e.target.value as typeof s.conversionDateRule })}>
@@ -456,7 +457,8 @@ export function CurrencyPage() {
   const db = useDb();
   const run = useRun();
   const [newCur, setNewCur] = useState({ code: "", name: "" });
-  const [rate, setRate] = useState({ currency: db.config.currencies.find((c) => c.code !== db.config.reportingCurrency)?.code ?? "", rate: "", effectiveDate: today(), source: "Demo rate" });
+  const [rate, setRate] = useState({ currency: db.config.currencies.find((c) => c.code !== db.config.reportingCurrency)?.code ?? "", rate: "", quote: "PER_REPORTING" as "PER_UNIT" | "PER_REPORTING", effectiveDate: today(), source: "Demo rate" });
+  const stored = rate.quote === "PER_UNIT" ? Number(rate.rate) : 1 / Number(rate.rate);
   const rates = [...db.config.exchangeRates].sort((a, b) => a.currency.localeCompare(b.currency) || b.effectiveDate.localeCompare(a.effectiveDate));
   return (
     <>
@@ -470,7 +472,7 @@ export function CurrencyPage() {
           columns={[
             { key: "c", header: "Code", cell: (c) => <span className="num font-medium">{c.code}</span> },
             { key: "n", header: "Name", cell: (c) => c.name },
-            { key: "r", header: "Latest rate", cell: (c) => (c.code === db.config.reportingCurrency ? "Reporting currency" : (() => { const r = rates.find((x) => x.currency === c.code); return r ? `${r.rate} from ${formatDate(r.effectiveDate, "short")}` : <span className="text-act-fg">No rate: conversion pending</span>; })()) },
+            { key: "r", header: "Latest rate", cell: (c) => (c.code === db.config.reportingCurrency ? "Reporting currency" : (() => { const r = rates.find((x) => x.currency === c.code); return r ? `${formatRate(r.rate, c.code, db.config.reportingCurrency)} from ${formatDate(r.effectiveDate, "short")}` : <span className="text-act-fg">No rate: conversion pending</span>; })()) },
             { key: "e", header: "Available", cell: (c) => <Checkbox checked={c.enabled} disabled={c.code === db.config.reportingCurrency} onChange={(v) => run((d, a) => setCurrencyEnabled(d, a, c.code, v))}>{c.enabled ? "Enabled" : "Disabled"}</Checkbox> }
           ]}
         />
@@ -481,15 +483,19 @@ export function CurrencyPage() {
         </form>
       </Section>
       <Section title="Exchange rates">
-        <DataTable caption="Exchange rates" rows={rates} rowKey={(r) => r.id} columns={[{ key: "c", header: "Currency", cell: (r) => r.currency }, { key: "r", header: `${db.config.reportingCurrency} per unit`, align: "right", cell: (r) => r.rate }, { key: "d", header: "Effective from", cell: (r) => formatDate(r.effectiveDate) }, { key: "s", header: "Source", cell: (r) => <span className="flex items-center gap-2">{r.source} {r.isDemo ? <DemoTag>Demo rate</DemoTag> : null}</span> }]} />
-        <form className="grid max-w-3xl gap-4 border border-line bg-surface p-5 sm:grid-cols-4" onSubmit={(e) => { e.preventDefault(); run((d, a) => addExchangeRate(d, a, { currency: rate.currency, rate: Number(rate.rate), effectiveDate: rate.effectiveDate, source: rate.source }), "Rate added"); }}>
+        <DataTable caption="Exchange rates" rows={rates} rowKey={(r) => r.id} columns={[{ key: "c", header: "Currency", cell: (r) => r.currency }, { key: "r", header: "Rate", cell: (r) => formatRate(r.rate, r.currency, db.config.reportingCurrency) }, { key: "d", header: "Effective from", cell: (r) => formatDate(r.effectiveDate) }, { key: "s", header: "Source", cell: (r) => <span className="flex items-center gap-2">{r.source} {r.isDemo ? <DemoTag>Demo rate</DemoTag> : <StatusBadge tone="approved">GMCA</StatusBadge>}</span> }]} />
+        <form className="grid max-w-5xl gap-4 border border-line bg-surface p-5 sm:grid-cols-5" onSubmit={(e) => { e.preventDefault(); run((d, a) => addExchangeRate(d, a, { currency: rate.currency, rate: Number.isFinite(stored) ? stored : 0, effectiveDate: rate.effectiveDate, source: rate.source }), "Rate added"); }}>
           <SelectField label="Currency" value={rate.currency} onChange={(e) => setRate({ ...rate, currency: e.target.value })}>
             {db.config.currencies.filter((c) => c.code !== db.config.reportingCurrency).map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
           </SelectField>
-          <TextField label={`${db.config.reportingCurrency} per unit`} inputMode="decimal" value={rate.rate} onChange={(e) => setRate({ ...rate, rate: e.target.value })} />
+          <SelectField label="Quote" value={rate.quote} onChange={(e) => setRate({ ...rate, quote: e.target.value as typeof rate.quote })}>
+            <option value="PER_REPORTING">{rate.currency} per 1 {db.config.reportingCurrency}</option>
+            <option value="PER_UNIT">{db.config.reportingCurrency} per 1 {rate.currency}</option>
+          </SelectField>
+          <TextField label="Rate" inputMode="decimal" value={rate.rate} onChange={(e) => setRate({ ...rate, rate: e.target.value })} hint={rate.quote === "PER_REPORTING" ? "For example 96.35" : "For example 0.75"} />
           <TextField label="Effective from" type="date" value={rate.effectiveDate} onChange={(e) => setRate({ ...rate, effectiveDate: e.target.value })} />
           <TextField label="Source label" value={rate.source} onChange={(e) => setRate({ ...rate, source: e.target.value })} />
-          <div className="sm:col-span-4"><Button type="submit">Add demo rate</Button></div>
+          <div className="sm:col-span-5"><Button type="submit">Add rate</Button></div>
         </form>
         <p className="text-sm text-muted">Adding a rate updates drafts the next time they're saved. Submitted returns and declarations keep the rate they were filed with.</p>
       </Section>

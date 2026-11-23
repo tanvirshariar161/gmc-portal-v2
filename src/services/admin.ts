@@ -150,14 +150,16 @@ export function addExchangeRate(d: Db, actor: Actor, input: Omit<ExchangeRate, "
   if (!input.effectiveDate) throw new ServiceError("Enter the date the rate takes effect.");
   if (d.config.exchangeRates.some((r) => r.currency === input.currency && r.effectiveDate === input.effectiveDate)) throw new ServiceError(`A ${input.currency} rate already exists for ${input.effectiveDate}.`, "CONFLICT");
   const rate: ExchangeRate = { id: nextId(d, "FX"), ...input, source: input.source.trim() || "Demo rate", isDemo: true };
+  // Rates are stored as reporting-currency units per one unit of the currency.
   d.config.exchangeRates.push(rate);
   audit(d, actor, "EXCHANGE_RATE_ADDED", "ExchangeRate", rate.id, `${input.currency} = ${input.rate} ${d.config.reportingCurrency} from ${input.effectiveDate} (demo)`);
 }
 
-export function setPlatformSetting(d: Db, actor: Actor, patch: Partial<Pick<PlatformConfig, "reportingCurrency" | "conversionDateRule" | "informationRequestDays" | "currentFilingYear" | "currentPayrollPeriod">>) {
+export function setPlatformSetting(d: Db, actor: Actor, patch: Partial<Pick<PlatformConfig, "reportingCurrency" | "conversionDateRule" | "informationRequestDays" | "currentFilingYear" | "currentPayrollPeriod" | "filingDeadlineMonthDay">>) {
   require(actor, "admin.config");
   if (patch.reportingCurrency && !d.config.currencies.some((c) => c.code === patch.reportingCurrency && c.enabled)) throw new ServiceError("Choose an enabled currency.");
   if (patch.informationRequestDays !== undefined && !(patch.informationRequestDays >= 1 && patch.informationRequestDays <= 365)) throw new ServiceError("Response days must be between 1 and 365.");
+  if (patch.filingDeadlineMonthDay !== undefined && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(patch.filingDeadlineMonthDay)) throw new ServiceError("Enter the deadline as MM-DD, for example 04-30.");
   if (patch.currentPayrollPeriod !== undefined && !/^\d{4}-\d{2}$/.test(patch.currentPayrollPeriod)) throw new ServiceError("Choose a payroll month.");
   if (patch.reportingCurrency && patch.reportingCurrency !== d.config.reportingCurrency && d.config.exchangeRates.length) {
     // Rates are quoted against the reporting currency; changing it invalidates them in this demo.

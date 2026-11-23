@@ -19,6 +19,7 @@ import {
   Moon,
   PlugZap,
   Receipt,
+  RotateCcw,
   ScrollText,
   Settings2,
   ShieldCheck,
@@ -32,7 +33,7 @@ import {
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { ROLE_LABEL } from "../domain/permissions";
-import { getPersistError } from "../domain/store";
+import { getPersistError, resetDemoData } from "../domain/store";
 import type { Role } from "../domain/types";
 import { formatDateTime } from "../lib/format";
 import { cn } from "../lib/utils";
@@ -278,6 +279,16 @@ export function Shell({ children }: { children: ReactNode }) {
                     <span className="pl-5 text-xs text-muted">{db.users.find((u) => u.id === a.userId)?.name}</span>
                   </DropdownMenuItem>
                 ))}
+                <DropdownMenuItem
+                  onSelect={() => {
+                    if (window.confirm("Reset all demo data to the seeded state? Everything changed in this browser is lost.")) {
+                      resetDemoData();
+                      navigate(HOME[user.role]);
+                    }
+                  }}
+                >
+                  <RotateCcw className="size-4" /> Reset demo data
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem destructive onSelect={signOut}>
                   <LogOut className="size-4" /> Sign out

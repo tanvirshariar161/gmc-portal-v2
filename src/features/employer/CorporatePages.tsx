@@ -42,6 +42,7 @@ export function CorporateListPage() {
         caption="Corporate returns"
         rows={returns}
         rowKey={(r) => r.id}
+        onRowClick={(r) => navigate(r.submissionStatus === "DRAFT" ? `/company/corporate/file/${r.year}` : `/company/corporate/return/${r.id}`)}
         empty="No corporate returns yet."
         columns={[
           { key: "y", header: "Year", cell: (r) => <span className="num font-medium">{r.year}</span> },
@@ -310,6 +311,7 @@ export function EmployerHistory() {
           caption="Corporate returns filed"
           rows={corp}
           rowKey={(r) => r.id}
+          onRowClick={(r) => navigate(`/company/corporate/return/${r.id}`)}
           empty="No corporate returns filed."
           columns={[
             { key: "y", header: "Year", cell: (r) => r.year },

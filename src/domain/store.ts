@@ -8,7 +8,7 @@ import { nowIso } from "../services/clock";
  * and audit entries. Replace this module with an API client to move to a server.
  */
 const KEY = "gmca-v2:db";
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 let db: Db | null = null;
 const listeners = new Set<() => void>();

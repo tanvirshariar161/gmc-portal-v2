@@ -5,7 +5,7 @@ import { Link, useRun } from "../../app/core";
 import type { Actor } from "../../domain/store";
 import type { AssessmentStatus, CalculationSnapshot, Conversion, Db, DocumentCategory, DocumentReviewStatus, OwnerRef, PaymentStatus, RelatedRef, SubmissionStatus, TaxDocument } from "../../domain/types";
 import { formatDate } from "../../lib/format";
-import { formatAmount, formatMoney } from "../../lib/money";
+import { formatAmount, formatMoney, formatRate } from "../../lib/money";
 import { cn } from "../../lib/utils";
 import { CATEGORY_LABEL, removeDraftDocument, uploadDocument, validateUpload } from "../../services/documents";
 import { StatusBadge, type StatusFamily } from "../../shared/gmc/Layout";
@@ -136,7 +136,7 @@ export function ConversionView({ conversion, compact }: { conversion?: Conversio
     <span className="grid gap-0.5">
       <span className="num">{formatAmount(conversion.reportingMinor!, conversion.reportingCurrency)}</span>
       <span className="num text-xs text-muted">
-        {original} × {conversion.rate}
+        {original} at {formatRate(conversion.rate!, conversion.currency, conversion.reportingCurrency)}
         {compact ? "" : ` · rate of ${formatDate(conversion.rateDate, "short")}`} {conversion.isDemoRate ? <span className="font-medium text-act-fg">· demo rate</span> : null}
       </span>
     </span>
@@ -175,7 +175,7 @@ export function CalcBreakdown({ snapshot, title = "Calculation" }: { snapshot?: 
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
         <h3 className="font-medium">{title}</h3>
         <span className="flex items-center gap-2 text-xs text-muted">
-          Rule set {snapshot.ruleSetVersion} <DemoTag>Demo rules</DemoTag>
+          Rule set {snapshot.ruleSetVersion} <DemoTag>Prototype</DemoTag>
         </span>
       </div>
       <table className="w-full text-sm">

@@ -1,4 +1,4 @@
-import { ArrowRight, FileText, History, MessageSquareWarning } from "lucide-react";
+import { ArrowRight, CalendarClock, FileCheck2, FileText, History, MessageSquareWarning, Wallet } from "lucide-react";
 import { useState } from "react";
 import { Link, navigate, useActor, useDb, useDocumentTitle, useRun } from "../../app/core";
 import type { Assessment, Db, IndividualTaxReturn } from "../../domain/types";
@@ -8,7 +8,9 @@ import { requestCorrection, updateContact } from "../../services/registration";
 import { liabilityStatus, outstanding } from "../../services/payments";
 import { Button } from "../../shared/gmc/Button";
 import { TextArea, TextField } from "../../shared/gmc/Form";
-import { Alert, EmptyState, StatusBadge } from "../../shared/gmc/Layout";
+import { ActionCard, Alert, EmptyState, Eyebrow, IconTile, StatusBadge } from "../../shared/gmc/Layout";
+import { cn } from "../../lib/utils";
+import { ruleSetForYear } from "../../services/calc";
 import { DataTable } from "../../shared/gmc/Table";
 import { openRequestsFor, ownerOf, paymentsFor } from "../shared/queries";
 import { Forbidden } from "../shared/TaxpayerShared";
@@ -42,6 +44,10 @@ export function IndividualOverview() {
   const payments = paymentsFor(db, owner);
   const lastPaid = payments.find((p) => p.status === "SUCCESS");
   const currentAssessment = current && assessmentFor(db, current);
+  const filed = current?.submissionStatus === "SUBMITTED";
+  const ya = year + 1;
+  const deadline = `${ya}-${db.config.filingDeadlineMonthDay}`;
+  const daysLeft = Math.ceil((Date.parse(`${deadline}T23:59:59`) - Date.now()) / 86_400_000);
 
   return (
     <>
@@ -54,53 +60,25 @@ export function IndividualOverview() {
         </Alert>
       ))}
 
-      <section className="grid gap-0 border border-line bg-surface lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <div className="grid content-between gap-6 p-6 sm:p-8">
-          <div className="grid gap-2">
-            <p className="text-sm text-muted">Financial year {year}</p>
-            <h2 className="font-serif text-[1.75rem] leading-tight">
-              {!current ? "Your return hasn't been started" : current.submissionStatus === "DRAFT" ? "Your return is in progress" : currentAssessment?.status === "COMPLETED" ? "Your return has been assessed" : "Your return is with GMCA"}
-            </h2>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {current ? <SubmissionBadge status={current.submissionStatus} /> : <StatusBadge tone="neutral">Not started</StatusBadge>}
-              {currentAssessment ? <AssessmentBadge status={currentAssessment.status} /> : null}
-            </div>
-            <p className="max-w-xl pt-2 text-[15px] text-fg-2">
-              {!current || current.submissionStatus === "DRAFT"
-                ? "Employment income and TDS from your employer are filled in for you. Add any other income, claim reliefs, then review the calculation."
-                : `Submitted ${formatDateTime(current.submittedAt)} as ${current.reference}.`}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            {!current || current.submissionStatus === "DRAFT" ? (
-              <Button size="lg" onClick={() => navigate(`/returns/file/${year}`)}>
-                {current ? "Continue your return" : `Start ${year} return`} <ArrowRight />
-              </Button>
-            ) : (
-              <Button size="lg" variant="secondary" onClick={() => navigate(`/returns/${current.id}`)}>
-                View return
-              </Button>
-            )}
-          </div>
-        </div>
-        <div className="grid content-start gap-3 border-t border-line bg-sunk p-6 sm:p-8 lg:border-l lg:border-t-0">
-          <p className="flex items-center gap-2 text-sm font-medium">
-            {current?.submissionStatus === "SUBMITTED" ? "Calculated on your return" : "Estimate so far"} <DemoTag>Demo rules</DemoTag>
-          </p>
-          {current?.calculation ? (
-            <KeyValue
-              rows={[
-                { label: "Calculated tax", value: formatMoney(current.calculation.taxMinor) },
-                { label: "Employer-reported TDS", value: formatMoney(current.calculation.creditsMinor) },
-                { label: current.calculation.balanceMinor >= 0 ? "Estimated balance payable" : "Estimated credit", value: formatMoney(Math.abs(current.calculation.balanceMinor)) }
-              ]}
-            />
-          ) : (
-            <p className="text-sm text-muted">Starts when you begin your return.</p>
-          )}
-          <p className="text-xs text-muted">An estimate is not an assessment. GMCA assesses each return and issues a Notice of Assessment.</p>
-        </div>
-      </section>
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ActionCard
+          href={filed ? `/returns/${current!.id}` : `/returns/file/${year}`}
+          onNavigate={navigate}
+          filled={!filed}
+          icon={filed ? FileCheck2 : CalendarClock}
+          eyebrow={filed ? `Submitted ${formatDate(current!.submittedAt, "short")}` : daysLeftLabel(daysLeft)}
+          title={filed ? <>Your YA {ya} return is with GMCA</> : <>File your YA {ya} return by {formatDate(deadline)}</>}
+          body={
+            filed
+              ? currentAssessment?.status === "COMPLETED"
+                ? "GMCA has assessed it. Your Notice of Assessment is ready."
+                : `Reference ${current!.reference}. GMCA will tell you here when it has been assessed.`
+              : "Your employer's figures are already in. Add anything else you earned and the reliefs you're due."
+          }
+          cta={filed ? "View your return" : current ? "Continue your return" : "Start your return"}
+        />
+        <IncomeCard db={db} taxpayerId={taxpayer.id} year={year} />
+      </div>
 
       <MetricStrip
         items={[
@@ -118,12 +96,77 @@ export function IndividualOverview() {
   );
 }
 
+function daysLeftLabel(days: number) {
+  if (days > 1) return `${days} days left`;
+  if (days === 1) return "1 day left";
+  if (days === 0) return "Due today";
+  return `${-days} days overdue`;
+}
+
+/** Employment income for the year as employers declared it, month by month. */
+export function employerIncome(db: Db, taxpayerId: string, year: number) {
+  const ids = new Set(db.employees.filter((e) => e.taxpayerId === taxpayerId).map((e) => e.id));
+  let gross = 0;
+  let tds = 0;
+  let health = 0;
+  let months = 0;
+  for (const d of db.monthlyDeclarations) {
+    if (d.submissionStatus !== "SUBMITTED" || !d.period.startsWith(`${year}-`)) continue;
+    for (const l of d.lines) {
+      if (!ids.has(l.employeeId)) continue;
+      gross += l.conversion?.reportingMinor ?? 0;
+      tds += l.tdsMinor;
+      health += l.healthMinor;
+      months += 1;
+    }
+  }
+  return { gross, tds, health, net: gross - tds - health, months };
+}
+
+function IncomeCard({ db, taxpayerId, year }: { db: Db; taxpayerId: string; year: number }) {
+  const inc = employerIncome(db, taxpayerId, year);
+  const rules = ruleSetForYear(db.ruleSets, year);
+  const fig = (label: string, minor: number, tone?: "deduct" | "net") => (
+    <div className="grid gap-1">
+      <dt className="text-[15px] text-fg-2">{label}</dt>
+      <dd className={cn("num whitespace-nowrap font-serif text-[1.375rem] leading-tight sm:text-[1.625rem] 2xl:text-[2rem]", tone === "net" ? "text-brand-ink" : "text-fg")}>{formatMoney(tone === "deduct" ? -minor : minor)}</dd>
+    </div>
+  );
+  return (
+    <section className="grid min-h-[210px] content-between gap-7 border border-line bg-surface p-7 sm:p-8" aria-labelledby="income-card-title">
+      <div className="flex gap-5">
+        <IconTile icon={Wallet} size={52} />
+        <div className="grid gap-2">
+          <Eyebrow>Reported by your employer</Eyebrow>
+          <h2 id="income-card-title" className="font-serif text-[1.625rem] leading-tight text-fg sm:text-[1.875rem]">
+            Your {year} income
+          </h2>
+        </div>
+      </div>
+      {inc.months ? (
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-6">
+          {fig("Gross salary", inc.gross)}
+          {fig("Tax deducted", inc.tds, "deduct")}
+          {fig(`Health contribution (${rules.healthRatePct}%)`, inc.health, "deduct")}
+          {fig("Net salary", inc.net, "net")}
+        </dl>
+      ) : (
+        <p className="text-[15px] text-muted">No employer has reported income for {year} yet. It appears here as soon as your employer files its monthly declaration.</p>
+      )}
+      <Link to="/income" className="group flex items-center justify-end gap-2 font-medium text-fg transition-[gap] hover:gap-3">
+        See month by month <ArrowRight aria-hidden="true" className="size-4" />
+      </Link>
+    </section>
+  );
+}
+
 function ReturnsTable({ db, returns }: { db: Db; returns: IndividualTaxReturn[] }) {
   return (
     <DataTable
       caption="Individual returns"
       rows={returns}
       rowKey={(r) => r.id}
+      onRowClick={(r) => navigate(r.submissionStatus === "DRAFT" ? `/returns/file/${r.year}` : `/returns/${r.id}`)}
       empty="No returns yet."
       columns={[
         { key: "year", header: "Year", cell: (r) => <span className="num font-medium">{r.year}</span> },

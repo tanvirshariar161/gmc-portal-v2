@@ -38,6 +38,7 @@ function CaseTable({ db, rows, caption }: { db: Db; rows: CaseRow[]; caption: st
       caption={caption}
       rows={rows}
       rowKey={(r) => r.a.id}
+      onRowClick={(r) => navigate(`/gmca/cases/${r.a.id}`)}
       minWidth="64rem"
       empty="No returns match these filters."
       columns={[

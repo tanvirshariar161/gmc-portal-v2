@@ -26,6 +26,7 @@ export function minorToInput(minor: Minor | null | undefined): string {
   return (minor / 100).toFixed(2);
 }
 
+const plain = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cache = new Map<string, Intl.NumberFormat>();
 function formatter(code: string) {
   let f = cache.get(code);
@@ -40,8 +41,15 @@ function formatter(code: string) {
   return f;
 }
 
-/** "USD 1,234.50"; negative amounts use a true minus sign. */
+const SYMBOL: Record<string, string> = { USD: "$" };
+
+/** "$1,234.50" for USD, "BTN 1,234.50" for other currencies; negative amounts use a true minus sign. */
 export function formatAmount(minor: Minor, code: string): string {
+  const sym = SYMBOL[code];
+  if (sym) {
+    const s = `${sym}${plain.format(Math.abs(minor) / 100)}`;
+    return minor < 0 ? `−${s}` : s;
+  }
   const text = formatter(code).format(Math.abs(minor) / 100).replace(/ /g, " ");
   return minor < 0 ? `−${text}` : text;
 }
@@ -53,4 +61,10 @@ export function setReportingCurrency(code: string) {
 }
 export function formatMoney(minor: Minor, code = reportingCode): string {
   return formatAmount(minor, code);
+}
+
+/** Human rate: "1 SGD = 0.75 USD", or for weak currencies "1 USD = 96.35 BTN". */
+export function formatRate(rate: number, currency: string, reporting: string): string {
+  if (rate >= 0.1) return `1 ${currency} = ${Number(rate.toFixed(6))} ${reporting}`;
+  return `1 ${reporting} = ${Number((1 / rate).toFixed(4))} ${currency}`;
 }

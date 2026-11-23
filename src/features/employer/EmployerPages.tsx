@@ -121,6 +121,7 @@ export function DeclarationsTable({ db, decls }: { db: Db; decls: EmployerMonthl
       caption="Monthly declarations"
       rows={decls}
       rowKey={(d) => d.id}
+      onRowClick={(d) => navigate(`/company/payroll/${d.period}`)}
       empty="No declarations yet."
       minWidth="48rem"
       columns={[

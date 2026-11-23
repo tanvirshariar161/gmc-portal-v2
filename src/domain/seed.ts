@@ -20,7 +20,7 @@ const k = (major: number) => toMinor(major);
 const DEMO_RULES = (id: string, version: string, year: number): TaxRuleSet => ({
   id,
   version,
-  label: `Demo rule set for ${year}`,
+  label: `Income Tax Act 2025 bands and GMCA TDS table (${year})`,
   effectiveFromYear: year,
   status: "ACTIVE",
   individualBands: [
@@ -113,7 +113,7 @@ function base(): Db {
   ];
 
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     seededAt: new Date().toISOString(),
     counters: {},
     users,
@@ -150,10 +150,13 @@ function base(): Db {
       ],
       exchangeRates: [
         ...[["BTN", 0.0119], ["INR", 0.0119], ["SGD", 0.74], ["THB", 0.028], ["EUR", 1.08]].map(([c, r], i) => ({ id: `fx-25-${i}`, currency: c as string, rate: r as number, effectiveDate: "2025-01-01", source: "Demo rate", isDemo: true })),
-        ...[["BTN", 0.0118], ["INR", 0.0118], ["SGD", 0.75], ["THB", 0.029], ["EUR", 1.1], ["AUD", 0.65]].map(([c, r], i) => ({ id: `fx-26-${i}`, currency: c as string, rate: r as number, effectiveDate: "2026-01-01", source: "Demo rate", isDemo: true }))
+        ...[["BTN", 0.0118], ["INR", 0.0118], ["SGD", 0.75], ["THB", 0.029], ["EUR", 1.1], ["AUD", 0.65]].map(([c, r], i) => ({ id: `fx-26-${i}`, currency: c as string, rate: r as number, effectiveDate: "2026-01-01", source: "Demo rate", isDemo: true })),
+        // GMCA TDS note: US$1 = Nu 96.35 as at 30 Apr 2026, so Nu 96,350 = US$1,000 exactly.
+        { id: "fx-gmca-btn-2026-04", currency: "BTN", rate: 1 / 96.35, effectiveDate: "2026-04-30", source: "GMCA TDS note (US$1 = Nu 96.35)", isDemo: false }
       ],
       informationRequestDays: 14,
       currentFilingYear: 2026,
+      filingDeadlineMonthDay: "04-30",
       currentPayrollPeriod: "2026-11",
       integrations: { ndi: "SEEDED", immigration: "SEEDED", companyRegistry: "SEEDED", dkBank: "CHOOSE", pendingResolvesTo: "SUCCESS" }
     }

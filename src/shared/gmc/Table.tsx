@@ -12,7 +12,8 @@ export function DataTable<T>({
   foot,
   minWidth = "40rem",
   empty,
-  rowClassName
+  rowClassName,
+  onRowClick
 }: {
   caption: string;
   columns: Column<T>[];
@@ -22,6 +23,8 @@ export function DataTable<T>({
   minWidth?: string;
   empty?: ReactNode;
   rowClassName?: (row: T) => string | undefined;
+  /** Makes the whole row clickable. Keep a real link in one cell so keyboard users can reach it. */
+  onRowClick?: (row: T) => void;
 }) {
   return (
     <div className="overflow-x-auto border border-line">
@@ -45,7 +48,18 @@ export function DataTable<T>({
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={rowKey(row)} className={cn("border-b border-line bg-surface transition-colors hover:bg-brand-50", rowClassName?.(row))}>
+              <tr
+                key={rowKey(row)}
+                className={cn("border-b border-line bg-surface transition-colors hover:bg-brand-50", onRowClick && "cursor-pointer", rowClassName?.(row))}
+                onClick={
+                  onRowClick
+                    ? (e) => {
+                        if ((e.target as HTMLElement).closest("a,button,input,select,textarea,label")) return;
+                        onRowClick(row);
+                      }
+                    : undefined
+                }
+              >
                 {columns.map((c) => (
                   <td key={c.key} className={cn("px-4 py-2.5 align-middle", c.align === "right" && "num text-right", c.className)}>
                     {c.cell(row)}

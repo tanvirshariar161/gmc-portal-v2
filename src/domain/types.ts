@@ -452,7 +452,10 @@ export type PlatformConfig = {
   currencies: Currency[];
   exchangeRates: ExchangeRate[];
   informationRequestDays: number;
+  /** Income year open for filing. Its year of assessment (YA) is the following year. */
   currentFilingYear: number;
+  /** MM-DD in the year of assessment, e.g. "04-30" → YA 2027 return due 30 April 2027. */
+  filingDeadlineMonthDay: string;
   currentPayrollPeriod: string;
   integrations: { ndi: IntegrationMode; immigration: IntegrationMode; companyRegistry: IntegrationMode; dkBank: BankMode; pendingResolvesTo: "SUCCESS" | "FAILURE" };
 };

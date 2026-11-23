@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { buildSeed } from "../domain/seed";
 import type { Actor } from "../domain/store";
 import type { Db } from "../domain/types";
-import { toMinor } from "../lib/money";
+import { formatAmount, toMinor } from "../lib/money";
 import { assignToMe, completeAssessment, recordVerification, requestInformation, respondToRequest, startReview } from "./assessment";
-import { bracketFor, calculateCorporate, calculateIndividual, progressiveTax, ruleSetForYear } from "./calc";
+import { bracketFor, calculateCorporate, calculateIndividual, monthlyTds, progressiveTax, ruleSetForYear } from "./calc";
 import { convert } from "./currency";
 import { ensureDeclaration, saveDeclarationLines, submitDeclaration } from "./employer";
 import { ensureDraftReturn, saveDraft, submitReturn, validateReturn } from "./individual";
@@ -19,6 +19,13 @@ const actor = (id: string): Actor => {
 
 beforeEach(() => {
   d = buildSeed();
+});
+
+describe("money", () => {
+  it("shows USD with a $ sign and other currencies by code", () => {
+    expect(formatAmount(toMinor(-2_400), "USD")).toBe("−$2,400.00");
+    expect(formatAmount(toMinor(95_000), "BTN")).toBe("BTN 95,000.00");
+  });
 });
 
 describe("seed", () => {
@@ -51,8 +58,15 @@ describe("calculation engine", () => {
   it("applies progressive demo bands", () => {
     expect(progressiveTax(toMinor(40_000), rules().individualBands)).toBe(toMinor(1_000 + 700));
   });
-  it("uses the whole-amount TDS bracket", () => {
-    expect(bracketFor(toMinor(4_200), rules().tdsBands)?.ratePct).toBe(5);
+  it("uses the GMCA TDS table: inclusive upper limits, rate on the whole month", () => {
+    const r = (usd: number) => bracketFor(toMinor(usd), rules().tdsBands)?.ratePct;
+    expect([r(1_000), r(1_000.01), r(3_000), r(3_000.01), r(25_000), r(25_000.01)]).toEqual([0, 2, 2, 5, 5, 10]);
+    expect(monthlyTds(toMinor(4_200), rules(), "NOT_DETERMINED").tdsMinor).toBe(toMinor(210));
+  });
+  it("puts Nu thresholds on the same brackets at US$1 = Nu 96.35", () => {
+    const usdOf = (nu: number) => convert(d.config, toMinor(nu), "BTN", "2026-05-31").reportingMinor!;
+    const r = (nu: number) => bracketFor(usdOf(nu), rules().tdsBands)?.ratePct;
+    expect([r(96_350), r(96_351), r(289_050), r(289_051), r(2_408_750), r(2_408_751)]).toEqual([0, 2, 2, 5, 5, 10]);
   });
   it("caps reliefs, excludes exempt income and nets TDS", () => {
     const s = calculateIndividual(
