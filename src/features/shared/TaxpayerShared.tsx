@@ -7,6 +7,7 @@ import { ServiceError, type Actor } from "../../domain/store";
 import type { Db, Payment, TaxDocument } from "../../domain/types";
 import { formatDate, formatDateTime, formatPeriod } from "../../lib/format";
 import { formatAmount, formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
+import { appHref } from "../../lib/basePath";
 import { cn } from "../../lib/utils";
 import { caseLabel, respondToRequest } from "../../services/assessment";
 import { CATEGORY_LABEL } from "../../services/documents";
@@ -317,7 +318,7 @@ function CertificateFrame({ doc, kind, children }: { doc: TaxDocument; kind: str
     <article className="mx-auto grid w-full max-w-3xl gap-6 border border-line bg-surface p-6 sm:p-10">
       <header className="flex flex-wrap items-start justify-between gap-6 border-b border-line pb-6">
         <div className="grid gap-2">
-          <img src="/gmc-logo-black.svg" alt="" className="h-12 w-auto self-start dark:invert" />
+          <img src={appHref("/gmc-logo-black.svg")} alt="" className="h-12 w-auto self-start dark:invert" />
           <p className="text-[13px] uppercase tracking-[0.14em] text-muted">Gelephu Mindfulness City Authority · Income Tax</p>
           <h1 className="font-serif text-[1.75rem] leading-tight">{kind}</h1>
           <p className="num text-sm text-muted">Reference {doc.reference} · issued {formatDateTime(doc.uploadedAt)}</p>

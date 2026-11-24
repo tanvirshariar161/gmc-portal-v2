@@ -16,6 +16,18 @@ npm run build      # typecheck + production build
 
 Data lives in this browser's `localStorage` (`gmca-v2:db`). To return to the seeded state, use **Reset demo data**: it's in the account menu for every role, on the sign-in page, and under *Admin → Integration demo settings*.
 
+## Live demo (GitHub Pages)
+
+The app is published at <https://tanvirshariar161.github.io/gmc-portal-v2/> from the repository `tanvirshariar161/gmc-portal-v2`, which holds only this folder. `.github/workflows/pages.yml` tests, builds and deploys every push to its `main` branch.
+
+To publish changes from this monorepo, commit them here and push the folder:
+
+```bash
+git subtree push --prefix apps/portal-v2 v2-pages main
+```
+
+Pages serves the app from `/gmc-portal-v2/`. Routes stay root-relative in code; `src/lib/basePath.ts` adds and removes that sub-path at the browser edge, so use `navigate`, `Link`, `NavLink` or `appHref` for in-app URLs and public files referenced from TSX.
+
 ## Demo accounts
 
 Pick one on the sign-in page. You can switch role from the account menu. Role switching exists only in this demo.
@@ -24,7 +36,7 @@ Pick one on the sign-in page. You can switch role from the account menu. Role sw
 |---|---|---|
 | Citizen taxpayer | Karma Dorji | Continue the 2026 return: employer income is prefilled, add a source in another currency with its own bank statement, claim a relief, review the calculation, submit, open the Acknowledgement Certificate. In Tax history, open the 2025 return read-only with its certificate, Notice of Assessment and payment receipt. |
 | Foreign taxpayer | Anika Rao | Answer GMCA's open information request. Pay the assessed 2025 balance through the simulated DK Bank, trying the *pending* and *decline* outcomes. |
-| Employer representative | Pema Wangchuk | Start the November 2026 declaration, change an employee's pay currency, submit, then pay October (still outstanding). Add a foreign employee (verified by the simulated Immigration System). File the 2026 corporate return and see the recorded 5% incentive applied. |
+| Employer representative | Pema Wangchuk | Start the November 2026 declaration, change an employee's pay currency or import pay from a CSV saved in Excel (download the template, edit, upload, review, apply), submit, then pay October (still outstanding). Add a foreign employee (verified by the simulated Immigration System). File the 2026 corporate return and see the recorded 5% incentive applied. |
 | GMCA assessor | Ugyen Tshering | Work queue filters. Pick up an unassigned return, review the evidence, verify the calculation, record an adjustment or request information, then complete the assessment and issue the Notice of Assessment. A case assigned to Kinley Wangmo is read-only for Ugyen. |
 | GMCA administrator | Deki Pelden | Create an officer, change roles, publish a new rule set version, edit reliefs, record or revoke an incentive, add a demo exchange rate, switch simulators to *no match / unavailable / always fail*, read the audit log. |
 
@@ -64,8 +76,9 @@ All of these are configurable by an administrator and labelled "demo" in the UI.
 
 - Reporting currency USD, shown with a $ sign; other currencies show their ISO code. Demo exchange rates for INR, SGD, THB, EUR and AUD, plus BTN before 30 Apr 2026. GBP has no rate, to show the *conversion pending* state. Conversion uses the rate in force at the end of the income or payroll period. Rounding is half-up to the cent.
 - Health contribution is 1% for all employees. No social security (clean wage policy).
-- Corporate rate 15%. The approved incentive for Gelephu Green Energy is 5%.
-- The non-resident rate of 0% applies only when GMCA has recorded a taxpayer as non-resident. Nationality alone never changes the treatment.
+- Rates come from **taxpayer classes** (Admin → Tax classification). Individuals match on citizenship and GMCA-recorded residency; businesses on entity type. The first enabled match applies, and every taxpayer must resolve before a rule set can be published. Seeded: non-resident 0% flat, resident and not-determined on the Act bands, company and sole proprietorship 15% flat. A "non-citizen 0% to 2030" class (from secondary sources) is seeded switched off. Nationality alone never changes the treatment unless GMCA turns that class on.
+- The approved incentive for Gelephu Green Energy is 5%; incentives override the class rate.
+- The **tax item catalogue** classifies income (taxable, exempt, final withholding; GMC or foreign source), expenses (deductible, partly, not, capitalised), assets (capital allowance with rate and method, full write-off, none) and liabilities (deductible when paid, interest deductible with optional EBITDA limit, no effect). Individual income items are the categories on the return. Expense, asset and liability items are configuration only until the corporate return gets schedules.
 - Relief limits and evidence examples are illustrative. Carry-forward of excess TDS is *not configured*.
 - Financial year equals the calendar year. The information-request response period is 14 days. No penalties or interest.
 - History before FY2026 is demonstration data. It does not imply legacy migration.

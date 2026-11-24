@@ -6,6 +6,8 @@ import { formatAmount, toMinor } from "../lib/money";
 import { addAdjustment, assignToMe, completeAssessment, recordVerification, requestInformation, respondToRequest, startReview } from "./assessment";
 import { bracketFor, calculateCorporate, calculateIndividual, monthlyTds, progressiveTax, ruleSetForYear } from "./calc";
 import { convert } from "./currency";
+import { classForCompany, classForTaxpayer, resolveTaxpayerClass } from "./classification";
+import { publishRuleSet, validateRuleSet } from "./admin";
 import { ensureDeclaration, saveDeclarationLines, submitDeclaration } from "./employer";
 import { ensureDraftReturn, payAndSubmit, saveDraft, submitReturn, validateReturn } from "./individual";
 import { initiatePayment, liabilityStatus, recheckPayment, settlePayment } from "./payments";
@@ -61,7 +63,7 @@ describe("calculation engine", () => {
   it("uses the GMCA TDS table: inclusive upper limits, rate on the whole month", () => {
     const r = (usd: number) => bracketFor(toMinor(usd), rules().tdsBands)?.ratePct;
     expect([r(1_000), r(1_000.01), r(3_000), r(3_000.01), r(25_000), r(25_000.01)]).toEqual([0, 2, 2, 5, 5, 10]);
-    expect(monthlyTds(toMinor(4_200), rules(), "NOT_DETERMINED").tdsMinor).toBe(toMinor(210));
+    expect(monthlyTds(toMinor(4_200), rules(), classForTaxpayer(rules(), { category: "CITIZEN", residencyStatus: "NOT_DETERMINED" }, 2026)).tdsMinor).toBe(toMinor(210));
   });
   it("puts Nu thresholds on the same brackets at US$1 = Nu 96.35", () => {
     const usdOf = (nu: number) => convert(d.config, toMinor(nu), "BTN", "2026-05-31").reportingMinor!;
@@ -74,7 +76,9 @@ describe("calculation engine", () => {
         employment: [{ employerName: "X", months: 12, grossMinor: toMinor(40_000), tdsMinor: toMinor(1_000), healthMinor: 0, currency: "USD", source: "EMPLOYER_DECLARATIONS" }],
         incomeSources: [{ id: "a", category: "GIFT", description: "Gift", payer: "", amountMinor: toMinor(5000), currency: "USD", periodFrom: "", periodTo: "", classification: "EXEMPT", conversion: convert(d.config, toMinor(5000), "USD", "2026-12-31"), supportingDocIds: [] }],
         reliefs: [{ id: "r", reliefKey: "SPOUSE", declaredMinor: toMinor(5_000), note: "", docIds: [] }],
-        residency: "NOT_DETERMINED"
+        citizenship: "CITIZEN",
+        residency: "NOT_DETERMINED",
+        year: 2026
       },
       rules(),
       "USD"
@@ -84,14 +88,62 @@ describe("calculation engine", () => {
     expect(s.warnings.join(" ")).toMatch(/cap/);
   });
   it("applies the non-resident rate only when GMCA recorded non-residency", () => {
-    const input = { employment: [{ employerName: "X", months: 12, grossMinor: toMinor(80_000), tdsMinor: 0, healthMinor: 0, currency: "USD", source: "EMPLOYER_DECLARATIONS" as const }], incomeSources: [], reliefs: [] };
+    const input = { employment: [{ employerName: "X", months: 12, grossMinor: toMinor(80_000), tdsMinor: 0, healthMinor: 0, currency: "USD", source: "EMPLOYER_DECLARATIONS" as const }], incomeSources: [], reliefs: [], citizenship: "FOREIGN" as const, year: 2026 };
     expect(calculateIndividual({ ...input, residency: "NON_RESIDENT" }, rules(), "USD").taxMinor).toBe(0);
     expect(calculateIndividual({ ...input, residency: "NOT_DETERMINED" }, rules(), "USD").taxMinor).toBeGreaterThan(0);
   });
   it("applies an approved incentive rate", () => {
     const f = { revenueMinor: toMinor(1_000_000), otherIncomeMinor: 0, expensesMinor: toMinor(600_000), adjustments: [] };
-    expect(calculateCorporate(f, rules(), undefined, "USD").taxMinor).toBe(toMinor(60_000));
-    expect(calculateCorporate(f, rules(), d.incentives[0], "USD").taxMinor).toBe(toMinor(20_000));
+    const company = classForCompany(rules(), "COMPANY", 2026);
+    expect(calculateCorporate(f, rules(), company, undefined, "USD").taxMinor).toBe(toMinor(60_000));
+    expect(calculateCorporate(f, rules(), company, d.incentives[0], "USD").taxMinor).toBe(toMinor(20_000));
+  });
+});
+
+describe("taxpayer classes and tax items", () => {
+  const rules = () => ruleSetForYear(d.ruleSets, 2026);
+  const admin = () => actor("usr-admin");
+  const input = { employment: [{ employerName: "X", months: 12, grossMinor: toMinor(80_000), tdsMinor: 0, healthMinor: 0, currency: "USD", source: "EMPLOYER_DECLARATIONS" as const }], incomeSources: [], reliefs: [], residency: "NOT_DETERMINED" as const };
+
+  it("seeds a publishable rule set", () => {
+    expect(() => validateRuleSet(rules())).not.toThrow();
+  });
+  it("uses the first enabled class in order, and honours its last income year", () => {
+    const r = structuredClone(rules());
+    r.taxpayerClasses.find((c) => c.key === "IND_NON_CITIZEN_2030")!.enabled = true;
+    const foreign = { regime: "INDIVIDUAL" as const, citizenship: "FOREIGN" as const, residency: "NOT_DETERMINED" as const };
+    expect(resolveTaxpayerClass(r, foreign, 2030).key).toBe("IND_NON_CITIZEN_2030");
+    expect(resolveTaxpayerClass(r, foreign, 2031).key).toBe("IND_STANDARD");
+    expect(calculateIndividual({ ...input, citizenship: "FOREIGN", year: 2030 }, r, "USD").taxMinor).toBe(0);
+    expect(calculateIndividual({ ...input, citizenship: "CITIZEN", year: 2030 }, r, "USD").taxMinor).toBeGreaterThan(0);
+  });
+  it("leaves foreign-source income out for a class taxed on GMC-source income only", () => {
+    const r = structuredClone(rules());
+    r.taxpayerClasses.find((c) => c.key === "IND_STANDARD")!.incomeScope = "GMC_SOURCE";
+    const src = { id: "f", category: "FOREIGN_EMPLOYMENT", description: "Payslips", payer: "", amountMinor: toMinor(20_000), currency: "USD", periodFrom: "", periodTo: "", classification: "TAXABLE" as const, conversion: convert(d.config, toMinor(20_000), "USD", "2026-12-31"), supportingDocIds: [] };
+    const s = calculateIndividual({ ...input, incomeSources: [src], citizenship: "CITIZEN", year: 2026 }, r, "USD");
+    expect(s.figures!.taxableMinor).toBe(toMinor(80_000));
+    expect(s.lines.some((l) => l.key === "out-of-scope")).toBe(true);
+  });
+  it("taxes a business class on the Income Tax Act bands when configured", () => {
+    const r = structuredClone(rules());
+    const sole = r.taxpayerClasses.find((c) => c.key === "CORP_SOLE_PROP")!;
+    Object.assign(sole, { rateBasis: "INDIVIDUAL_BANDS", flatRatePct: null });
+    const f = { revenueMinor: toMinor(40_000), otherIncomeMinor: 0, expensesMinor: 0, adjustments: [] };
+    expect(calculateCorporate(f, r, sole, undefined, "USD").taxMinor).toBe(progressiveTax(toMinor(40_000), r.individualBands));
+  });
+  it("publishes a changed catalogue as a new version and rejects broken ones", () => {
+    const base = rules();
+    const items = base.taxItems.map((i) => (i.key === "AST_PLANT" ? { ...i, ratePct: 25 } : i));
+    const next = publishRuleSet(d, admin(), base.id, { taxItems: items }, "Plant allowance confirmed");
+    expect(next.version).not.toBe(base.version);
+    expect(ruleSetForYear(d.ruleSets, 2026).taxItems.find((i) => i.key === "AST_PLANT")!.ratePct).toBe(25);
+    const noFallback = next.taxpayerClasses.map((c) => (c.key === "IND_STANDARD" ? { ...c, enabled: false } : c));
+    expect(() => publishRuleSet(d, admin(), next.id, { taxpayerClasses: noFallback }, "x")).toThrow(/covers/);
+    const badRate = next.taxItems.map((i) => (i.key === "AST_PLANT" ? { ...i, ratePct: null } : i));
+    expect(() => publishRuleSet(d, admin(), next.id, { taxItems: badRate }, "x")).toThrow(/allowance/);
+    const wrongKind = next.taxItems.map((i) => (i.key === "LIA_PROVISIONS" ? { ...i, treatment: "TAXABLE" as const } : i));
+    expect(() => publishRuleSet(d, admin(), next.id, { taxItems: wrongKind }, "x")).toThrow(/treatment/);
   });
 });
 

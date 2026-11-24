@@ -1,17 +1,20 @@
-import { ArrowRight, Plus, Save, Search, UserPlus } from "lucide-react";
+import { ArrowRight, Building2, FileCheck2, Plus, Save, Search, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, navigate, useActor, useDb, useDocumentTitle, useRun } from "../../app/core";
 import type { Db, Employee, EmployerMonthlyDeclaration } from "../../domain/types";
 import { formatDate, formatDateTime, formatPeriod, maskId } from "../../lib/format";
-import { formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
+import { formatAmount, formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
+import type { CsvUpdate } from "../../lib/payrollCsv";
 import { activeIncentive, ruleSetForYear } from "../../services/calc";
+import { classForCompany, describeRate } from "../../services/classification";
 import { addEmployee, declarationIssues, employedInPeriod, ensureDeclaration, saveDeclarationLines, submitDeclaration, updateEmployee, verifyEmployee, type EmployeeInput } from "../../services/employer";
 import { liabilityStatus, outstanding } from "../../services/payments";
 import { Button } from "../../shared/gmc/Button";
 import { RadioGroup, SelectField, TextField } from "../../shared/gmc/Form";
-import { Alert, StatusBadge } from "../../shared/gmc/Layout";
+import { ActionCard, Alert, StatusBadge } from "../../shared/gmc/Layout";
 import { DataTable } from "../../shared/gmc/Table";
 import { openRequestsFor } from "../shared/queries";
+import { PayrollCsvImport } from "./PayrollCsvImport";
 import { Forbidden } from "../shared/TaxpayerShared";
 import { AssessmentBadge, CalcBreakdown, ConversionView, CurrencySelect, DemoTag, KeyValue, MetricStrip, PageHeader, PaymentBadge, Section, SubmissionBadge, userName } from "../shared/ui";
 
@@ -41,8 +44,15 @@ export function EmployerOverview() {
   const due = liabilities.reduce((s, l) => s + outstanding(l), 0);
   const active = db.employees.filter((e) => e.companyId === company.id && e.status !== "LEFT");
   const inc = activeIncentive(db.incentives, company.id, db.config.currentFilingYear);
-  const corp = db.corporateReturns.filter((r) => r.companyId === company.id).sort((a, b) => b.year - a.year)[0];
-  const corpA = corp?.assessmentId ? db.assessments.find((a) => a.id === corp.assessmentId) : undefined;
+  // The open filing year's return, plus the most recent earlier one for its assessment status.
+  const year = db.config.currentFilingYear;
+  const corpReturns = db.corporateReturns.filter((r) => r.companyId === company.id).sort((a, b) => b.year - a.year);
+  const corp = corpReturns.find((r) => r.year === year);
+  const prevCorp = corpReturns.find((r) => r.year < year);
+  const prevA = prevCorp?.assessmentId ? db.assessments.find((a) => a.id === prevCorp.assessmentId) : undefined;
+  const corpDeadline = `${year + 1}-${db.config.filingDeadlineMonthDay}`;
+  const corpDaysLeft = Math.ceil((Date.parse(`${corpDeadline}T23:59:59`) - Date.now()) / 86_400_000);
+  const corpRate = inc ? `${inc.ratePct}% approved incentive` : describeRate(classForCompany(ruleSetForYear(db.ruleSets, year), company.type, year));
   const requests = openRequestsFor(db, owner);
   const calc = (current ?? last)?.calculation;
 
@@ -87,25 +97,52 @@ export function EmployerOverview() {
           { label: "Outstanding to pay", value: formatMoney(due), hint: due ? <Link className="text-brand-ink underline" to="/payments">Go to payments</Link> : "Nothing outstanding" },
           { label: "Active employees", value: active.length },
           { label: "Declarations filed", value: decls.filter((d) => d.submissionStatus === "SUBMITTED").length },
-          { label: "Corporate tax rate", value: inc ? `${inc.ratePct}%` : `${ruleSetForYear(db.ruleSets, db.config.currentFilingYear).corporateRatePct}%`, hint: inc ? `Approved incentive ${inc.approvalReference}` : "Standard demo rate" }
+          { label: "Corporate tax rate", value: inc ? `${inc.ratePct}%` : describeRate(classForCompany(ruleSetForYear(db.ruleSets, db.config.currentFilingYear), company.type, db.config.currentFilingYear)), hint: inc ? `Approved incentive ${inc.approvalReference}` : "Demo rate for this entity type" }
         ]}
       />
-      <Section title="Corporate income tax" actions={<Link to="/company/corporate" className="text-sm text-brand-ink underline-offset-4 hover:underline">Corporate returns</Link>}>
-        <div className="panel flex flex-wrap items-center justify-between gap-4 p-5">
-          {corp ? (
-            <>
-              <div className="grid gap-1">
-                <p className="font-medium">Financial year {corp.year}</p>
-                <p className="text-sm text-muted">{corp.reference ?? "Draft"}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <SubmissionBadge status={corp.submissionStatus} />
-                {corpA ? <AssessmentBadge status={corpA.status} /> : null}
-              </div>
-            </>
+      <Section title={`Corporate income tax, YA ${year + 1}`} actions={<Link to="/company/corporate" className="text-sm text-brand-ink underline-offset-4 hover:underline">All corporate returns</Link>}>
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+          {corp?.submissionStatus === "SUBMITTED" ? (
+            <ActionCard
+              href={`/company/corporate/return/${corp.id}`}
+              onNavigate={navigate}
+              filled={false}
+              icon={FileCheck2}
+              eyebrow={`Filed ${formatDateTime(corp.submittedAt)}`}
+              title={`${year} corporate return submitted`}
+              body={`${corp.reference}. GMCA assesses it and issues a Notice of Assessment.`}
+              cta="View the return"
+            />
           ) : (
-            <p className="text-sm text-muted">No corporate return yet.</p>
+            <ActionCard
+              href={`/company/corporate/file/${year}`}
+              onNavigate={navigate}
+              filled
+              icon={Building2}
+              eyebrow={`Due ${formatDate(corpDeadline)} · ${corpDaysLeft >= 0 ? `${corpDaysLeft} days left` : `${-corpDaysLeft} days overdue`}`}
+              title={`File the ${year} corporate return`}
+              body={`${corp ? `Draft last saved ${formatDateTime(corp.lastSavedAt)}. ` : ""}Revenue, expenses and adjustments for ${year}, with audited financial statements and a fixed asset report. Tax is worked out at ${corpRate}.`}
+              cta={corp ? "Continue the return" : "Start the return"}
+            />
           )}
+          <div className="grid content-start gap-3 border border-line bg-surface p-6">
+            <p className="text-sm text-muted">Previous return</p>
+            {prevCorp ? (
+              <>
+                <p className="font-serif text-xl">Financial year {prevCorp.year}</p>
+                <p className="text-sm text-muted">{prevCorp.reference ?? "Draft"}</p>
+                <div className="flex flex-wrap gap-2">
+                  <SubmissionBadge status={prevCorp.submissionStatus} />
+                  {prevA ? <AssessmentBadge status={prevA.status} /> : null}
+                </div>
+                <Link className="text-sm text-brand-ink underline-offset-4 hover:underline" to={prevCorp.submissionStatus === "SUBMITTED" ? `/company/corporate/return/${prevCorp.id}` : `/company/corporate/file/${prevCorp.year}`}>
+                  {prevCorp.submissionStatus === "SUBMITTED" ? "View return and assessment" : "Continue the draft"}
+                </Link>
+              </>
+            ) : (
+              <p className="text-sm text-muted">No earlier corporate return.</p>
+            )}
+          </div>
         </div>
       </Section>
       <Section title="Recent declarations">
@@ -405,7 +442,20 @@ function DeclarationEditor({ db, decl }: { db: Db; decl: EmployerMonthlyDeclarat
   const issues = declarationIssues(decl);
   const ack = decl.ackDocId ? db.documents.find((d) => d.id === decl.ackDocId) : undefined;
   const l = decl.liabilityId ? db.liabilities.find((x) => x.id === decl.liabilityId) : undefined;
-  const save = (msg?: string) => run((d, a) => saveDeclarationLines(d, a, decl.id, lines.map((x) => ({ employeeId: x.employeeId, amountMinor: parseAmountInput(x.amount) ?? 0, currency: x.currency }))), msg);
+  const save = (msg?: string, rows = lines) => run((d, a) => saveDeclarationLines(d, a, decl.id, rows.map((x) => ({ employeeId: x.employeeId, amountMinor: parseAmountInput(x.amount) ?? 0, currency: x.currency }))), msg);
+  const roster = lines.map((x) => {
+    const e = db.employees.find((y) => y.id === x.employeeId);
+    return { key: x.employeeId, name: decl.lines.find((y) => y.employeeId === x.employeeId)?.employeeName ?? e?.fullName ?? "", ids: e ? [e.identifierValue] : [], currency: x.currency, amountMinor: parseAmountInput(x.amount) ?? 0 };
+  });
+  const importCsv = (updates: CsvUpdate[]) => {
+    const next = lines.map((x) => {
+      const u = updates.find((y) => y.key === x.employeeId);
+      return u ? { ...x, amount: minorToInput(u.amountMinor || null), currency: u.currency } : x;
+    });
+    if (!save(`Imported ${updates.length} pay change${updates.length === 1 ? "" : "s"} from CSV`, next)) return false;
+    setLines(next);
+    return true;
+  };
   const byCurrency = useMemo(() => {
     const m = new Map<string, number>();
     for (const x of decl.lines) m.set(x.currency, (m.get(x.currency) ?? 0) + 1);
@@ -429,6 +479,7 @@ function DeclarationEditor({ db, decl }: { db: Db; decl: EmployerMonthlyDeclarat
           This declaration is locked. Each employee's income now shows in their own tax account.
         </Alert>
       ) : null}
+      {!locked ? <PayrollCsvImport roster={roster} currencies={db.config.currencies.filter((c) => c.enabled).map((c) => c.code)} fileName={`payroll-${decl.period}.csv`} formatAmount={formatAmount} onApply={importCsv} /> : null}
       <DataTable
         caption="Employee remuneration"
         rows={decl.lines}

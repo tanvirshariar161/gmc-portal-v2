@@ -2,6 +2,7 @@ import { audit, nextId, notify, ServiceError, type Actor } from "../domain/store
 import { require } from "../domain/permissions";
 import type { BankMode, Db, ExchangeRate, IntegrationMode, PlatformConfig, ResidencyStatus, Role, TaxRuleSet, User } from "../domain/types";
 import { nowIso } from "./clock";
+import { classMatches, PROFILES, profileLabel, TREATMENTS } from "./classification";
 
 // ---------- Users and roles ----------
 
@@ -87,13 +88,52 @@ function checkBands(name: string, bands: TaxRuleSet["individualBands"]) {
 export function validateRuleSet(r: TaxRuleSet) {
   checkBands("Individual bands", r.individualBands);
   checkBands("Monthly TDS table", r.tdsBands);
-  for (const v of [r.healthRatePct, r.corporateRatePct, r.nonResidentRatePct ?? 0]) if (v < 0 || v > 100) throw new ServiceError("Rates must be between 0 and 100%.");
+  if (!(r.healthRatePct >= 0 && r.healthRatePct <= 100)) throw new ServiceError("Rates must be between 0 and 100%.");
   const keys = new Set<string>();
   for (const rel of r.reliefs) {
     if (!rel.label.trim()) throw new ServiceError("Every relief needs a name.");
     if (keys.has(rel.key)) throw new ServiceError(`Duplicate relief key ${rel.key}.`);
     keys.add(rel.key);
   }
+  validateClasses(r);
+  validateItems(r);
+}
+
+const isRate = (v: number | null): v is number => v !== null && Number.isFinite(v) && v >= 0 && v <= 100;
+
+function validateClasses(r: TaxRuleSet) {
+  const keys = new Set<string>();
+  for (const c of r.taxpayerClasses) {
+    const name = c.label.trim() || "A taxpayer class";
+    if (!c.label.trim()) throw new ServiceError("Every taxpayer class needs a name.");
+    if (keys.has(c.key)) throw new ServiceError(`Duplicate taxpayer class key ${c.key}.`);
+    keys.add(c.key);
+    if (c.rateBasis === "FLAT" && !isRate(c.flatRatePct)) throw new ServiceError(`${name}: enter a flat rate between 0 and 100%.`);
+    if (c.rateBasis !== "FLAT" && c.flatRatePct !== null) throw new ServiceError(`${name}: a flat rate is set but the class uses the Income Tax Act bands.`);
+    if (c.lastIncomeYear !== null && !(Number.isInteger(c.lastIncomeYear) && c.lastIncomeYear >= r.effectiveFromYear)) throw new ServiceError(`${name}: the last income year must be ${r.effectiveFromYear} or later, or left blank.`);
+  }
+  // Every taxpayer must still resolve once every sunset has passed.
+  for (const p of PROFILES) {
+    if (!r.taxpayerClasses.some((c) => c.enabled && c.lastIncomeYear === null && classMatches(c, p))) throw new ServiceError(`No enabled class without an end year covers ${profileLabel(p)}. Add a general class at the bottom of the list.`);
+  }
+}
+
+function validateItems(r: TaxRuleSet) {
+  const keys = new Set<string>();
+  for (const i of r.taxItems) {
+    const name = i.label.trim();
+    if (!name) throw new ServiceError("Every tax item needs a name.");
+    if (keys.has(i.key)) throw new ServiceError(`Duplicate tax item key ${i.key}.`);
+    keys.add(i.key);
+    const meta = TREATMENTS.find((t) => t.value === i.treatment && t.kind === i.kind);
+    if (!meta) throw new ServiceError(`${name}: choose a treatment that fits ${i.kind.toLowerCase()} items.`);
+    if (i.kind !== "INCOME" && i.appliesTo !== "CORPORATE") throw new ServiceError(`${name}: expenses, assets and liabilities apply to business returns only.`);
+    if (!meta.rate && i.ratePct !== null) throw new ServiceError(`${name}: ${meta.label.toLowerCase()} takes no rate.`);
+    if (meta.rate && (meta.rate.required || i.ratePct !== null) && !isRate(i.ratePct)) throw new ServiceError(`${name}: enter the ${meta.rate.label.replace(" %", "").toLowerCase()} as a percentage between 0 and 100.`);
+    if (i.treatment === "CAPITAL_ALLOWANCE" ? !i.allowanceMethod : i.allowanceMethod !== null) throw new ServiceError(`${name}: ${i.treatment === "CAPITAL_ALLOWANCE" ? "choose straight line or reducing balance" : "an allowance method applies to capital allowances only"}.`);
+    if ((i.kind === "INCOME") !== (i.origin !== null)) throw new ServiceError(`${name}: ${i.kind === "INCOME" ? "choose where the income arises" : "only income items have an origin"}.`);
+  }
+  if (!r.taxItems.some((i) => i.enabled && i.kind === "INCOME" && i.appliesTo !== "CORPORATE")) throw new ServiceError("Keep at least one income item available to individuals: taxpayers choose from them when they add an income source.");
 }
 
 // ---------- Incentives (approved outside the platform; recorded here) ----------

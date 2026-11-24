@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import type { Role } from "../domain/types";
-import { AdminOverview, AdminTaxpayerDetail, AuditPage, CurrencyPage, IncentivesPage, IntegrationsPage, MonitoringPage, ReliefConfigPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
+import { AdminOverview, AdminTaxpayerDetail, AuditPage, ClassificationPage, CurrencyPage, IncentivesPage, IntegrationsPage, MonitoringPage, ReliefConfigPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
 import { LoginPage, NotFound, RegisterChooser, RegisterCitizen, RegisterCompany, RegisterForeign } from "../features/auth/AuthPages";
 import { CorporateListPage, CorporateReturnPage, CorporateWizardEntry, EmployerHistory } from "../features/employer/CorporatePages";
 import { CompanyProfile, DeclarationPage, EmployeeEditor, EmployeesPage, EmployerOverview, PayrollPage } from "../features/employer/EmployerPages";
@@ -73,6 +73,7 @@ const ROUTES: Route[] = [
   { path: "/admin/taxpayers/:kind/:id", roles: ["ADMIN"], render: (p) => <AdminTaxpayerDetail key={p.id} kind={p.kind!} id={p.id!} /> },
   { path: "/admin/tax", roles: ["ADMIN"], render: () => <TaxConfigPage /> },
   { path: "/admin/reliefs", roles: ["ADMIN"], render: () => <ReliefConfigPage /> },
+  { path: "/admin/classification", roles: ["ADMIN"], render: () => <ClassificationPage /> },
   { path: "/admin/incentives", roles: ["ADMIN"], render: () => <IncentivesPage /> },
   { path: "/admin/currency", roles: ["ADMIN"], render: () => <CurrencyPage /> },
   { path: "/admin/integrations", roles: ["ADMIN"], render: () => <IntegrationsPage /> },

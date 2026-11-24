@@ -1,5 +1,6 @@
 import { formatAmount, formatRate, roundHalfUp, type Minor } from "../lib/money";
-import type { Band, CalcLine, CalculationSnapshot, CompanyTaxIncentive, CorporateFinancials, Conversion, EmploymentIncomeLine, IncomeSource, ReliefClaim, ResidencyStatus, TaxRuleSet } from "../domain/types";
+import type { Band, CalcLine, CalculationSnapshot, CompanyTaxIncentive, CorporateFinancials, Conversion, EmploymentIncomeLine, IncomeSource, ReliefClaim, ResidencyStatus, TaxpayerCategory, TaxpayerClass, TaxRuleSet } from "../domain/types";
+import { describeRate, resolveTaxpayerClass } from "./classification";
 
 /**
  * Shared tax calculation engine. Pure functions over stored inputs and a versioned rule set,
@@ -43,7 +44,9 @@ export type IndividualInput = {
   employment: EmploymentIncomeLine[];
   incomeSources: IncomeSource[];
   reliefs: ReliefClaim[];
+  citizenship: TaxpayerCategory;
   residency: ResidencyStatus;
+  year: number;
 };
 
 export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, reportingCurrency: string, now = new Date().toISOString()): CalculationSnapshot {
@@ -51,6 +54,7 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
   const warnings: string[] = [];
   const assumptions = [DEMO_ASSUMPTION, RULE_SOURCES];
   const fmt = (m: Minor) => formatAmount(m, reportingCurrency);
+  const cls = resolveTaxpayerClass(rules, { regime: "INDIVIDUAL", citizenship: input.citizenship, residency: input.residency }, input.year);
 
   const employmentMinor = input.employment.reduce((s, e) => s + e.grossMinor, 0);
   const tdsMinor = input.employment.reduce((s, e) => s + e.tdsMinor, 0);
@@ -60,6 +64,7 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
 
   let taxableOther = 0;
   let exempt = 0;
+  let outOfScope = 0;
   for (const s of input.incomeSources) {
     const conv: Conversion | undefined = s.conversion;
     if (!conv || conv.status === "PENDING" || conv.reportingMinor === null) {
@@ -67,15 +72,18 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
       continue;
     }
     const note = s.currency === reportingCurrency ? undefined : `${formatAmount(s.amountMinor, s.currency)} at ${formatRate(conv.rate!, s.currency, reportingCurrency)} (${conv.isDemoRate ? "demo rate" : conv.source}, ${conv.rateDate})`;
-    lines.push({ key: `src-${s.id}`, label: `${s.classification === "EXEMPT" ? "Exempt" : "Additional"} income · ${s.description || s.category}`, amountMinor: conv.reportingMinor, note });
-    if (s.classification === "EXEMPT") exempt += conv.reportingMinor;
+    const foreign = cls.incomeScope === "GMC_SOURCE" && rules.taxItems.find((i) => i.key === s.category && i.kind === "INCOME")?.origin === "FOREIGN";
+    lines.push({ key: `src-${s.id}`, label: `${foreign ? "Foreign-source" : s.classification === "EXEMPT" ? "Exempt" : "Additional"} income · ${s.description || s.category}`, amountMinor: conv.reportingMinor, note });
+    if (foreign) outOfScope += conv.reportingMinor;
+    else if (s.classification === "EXEMPT") exempt += conv.reportingMinor;
     else taxableOther += conv.reportingMinor;
   }
 
-  const totalIncome = employmentMinor + taxableOther + exempt;
+  const totalIncome = employmentMinor + taxableOther + exempt + outOfScope;
   const taxableIncome = employmentMinor + taxableOther;
   lines.push({ key: "total-income", label: "Total income", amountMinor: totalIncome, tone: "sub" });
   if (exempt) lines.push({ key: "exempt", label: "Less exempt income", amountMinor: -exempt, note: "Classified as exempt by the taxpayer; GMCA may review" });
+  if (outOfScope) lines.push({ key: "out-of-scope", label: "Less foreign-source income", amountMinor: -outOfScope, note: `${cls.label} is taxed on GMC-source income only` });
   lines.push({ key: "taxable", label: "Taxable income", amountMinor: taxableIncome, tone: "sub" });
 
   let reliefTotal = 0;
@@ -94,15 +102,14 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
   lines.push({ key: "chargeable", label: "Chargeable income", amountMinor: chargeable, tone: "sub" });
 
   let tax: Minor;
-  if (input.residency === "NON_RESIDENT" && rules.nonResidentRatePct !== null) {
-    tax = pct(chargeable, rules.nonResidentRatePct);
-    lines.push({ key: "tax", label: `Tax at configured non-resident rate (${rules.nonResidentRatePct}%)`, amountMinor: tax, tone: "total" });
-    assumptions.push("GMCA has recorded this taxpayer as non-resident. The non-resident rate is demo configuration pending GMCA's residency rules.");
+  if (cls.rateBasis === "FLAT") {
+    tax = pct(chargeable, cls.flatRatePct!);
+    lines.push({ key: "tax", label: `Tax at the ${cls.label} rate (${cls.flatRatePct}%)`, amountMinor: tax, tone: "total" });
   } else {
     tax = progressiveTax(chargeable, rules.individualBands);
     lines.push({ key: "tax", label: "Tax on chargeable income (Income Tax Act bands)", amountMinor: tax, tone: "total" });
-    if (input.residency === "NOT_DETERMINED") assumptions.push("Residency has not been determined by GMCA, so the standard bands apply. Nationality alone never changes the rate.");
   }
+  assumptions.push(`Taxpayer class: ${cls.label} (${describeRate(cls)}), from GMCA's recorded residency (${input.residency.toLowerCase().replace("_", " ")}) and citizenship.`);
 
   if (tdsMinor) lines.push({ key: "tds", label: "Less TDS reported by employers", amountMinor: -tdsMinor, tone: "credit" });
   const balance = tax - tdsMinor;
@@ -112,7 +119,6 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
   }
   lines.push({ key: "balance", label: balance >= 0 ? "Estimated balance payable" : "Estimated credit", amountMinor: balance, tone: "total" });
 
-  const nonResident = input.residency === "NON_RESIDENT" && rules.nonResidentRatePct !== null;
   return {
     id: "",
     kind: "INDIVIDUAL",
@@ -126,16 +132,15 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
     balanceMinor: balance,
     warnings,
     assumptions,
-    figures: { totalIncomeMinor: totalIncome, exemptMinor: exempt, taxableMinor: taxableIncome, reliefsMinor: reliefTotal, chargeableMinor: chargeable, nonResidentRatePct: nonResident ? rules.nonResidentRatePct! : undefined }
+    figures: { totalIncomeMinor: totalIncome, exemptMinor: exempt, taxableMinor: taxableIncome, reliefsMinor: reliefTotal, chargeableMinor: chargeable, taxpayerClass: { key: cls.key, label: cls.label, flatRatePct: cls.rateBasis === "FLAT" ? cls.flatRatePct : null } }
   };
 }
 
 // ---------- Employer monthly TDS and health ----------
 
-export function monthlyTds(reportingMinor: Minor, rules: TaxRuleSet, residency: ResidencyStatus): { tdsMinor: Minor; note: string } {
-  if (residency === "NON_RESIDENT" && rules.nonResidentRatePct !== null) {
-    return { tdsMinor: pct(reportingMinor, rules.nonResidentRatePct), note: `Non-resident rate ${rules.nonResidentRatePct}% (recorded by GMCA)` };
-  }
+/** A flat-rate class withholds its flat rate; a class taxed on the bands uses the monthly TDS table. */
+export function monthlyTds(reportingMinor: Minor, rules: TaxRuleSet, cls: TaxpayerClass): { tdsMinor: Minor; note: string } {
+  if (cls.rateBasis === "FLAT") return { tdsMinor: pct(reportingMinor, cls.flatRatePct!), note: `${cls.label}: flat ${cls.flatRatePct}%` };
   if (rules.tdsMethod === "BRACKET_WHOLE_AMOUNT") {
     const band = bracketFor(reportingMinor, rules.tdsBands);
     const rate = band?.ratePct ?? 0;
@@ -183,7 +188,7 @@ export function activeIncentive(incentives: CompanyTaxIncentive[], companyId: st
   return incentives.find((i) => i.companyId === companyId && i.status === "ACTIVE" && i.effectiveFrom <= yearEnd && i.effectiveTo >= yearStart);
 }
 
-export function calculateCorporate(f: CorporateFinancials, rules: TaxRuleSet, incentive: CompanyTaxIncentive | undefined, reportingCurrency: string, now = new Date().toISOString()): CalculationSnapshot {
+export function calculateCorporate(f: CorporateFinancials, rules: TaxRuleSet, cls: TaxpayerClass, incentive: CompanyTaxIncentive | undefined, reportingCurrency: string, now = new Date().toISOString()): CalculationSnapshot {
   const lines: CalcLine[] = [
     { key: "revenue", label: "Revenue", amountMinor: f.revenueMinor },
     { key: "other", label: "Other income", amountMinor: f.otherIncomeMinor },
@@ -198,16 +203,15 @@ export function calculateCorporate(f: CorporateFinancials, rules: TaxRuleSet, in
   }
   const chargeable = Math.max(0, profit + adj);
   lines.push({ key: "chargeable", label: "Chargeable income", amountMinor: chargeable, tone: "sub" });
-  const rate = incentive ? incentive.ratePct : rules.corporateRatePct;
-  const tax = pct(chargeable, rate);
+  const tax = incentive ? pct(chargeable, incentive.ratePct) : cls.rateBasis === "FLAT" ? pct(chargeable, cls.flatRatePct!) : progressiveTax(chargeable, rules.individualBands);
   lines.push({
     key: "tax",
-    label: incentive ? `Corporate tax at approved incentive rate (${rate}%)` : `Corporate tax at standard rate (${rate}%)`,
+    label: incentive ? `Corporate tax at approved incentive rate (${incentive.ratePct}%)` : cls.rateBasis === "FLAT" ? `Corporate tax at the ${cls.label} rate (${cls.flatRatePct}%)` : `Tax at the Income Tax Act bands (${cls.label})`,
     amountMinor: tax,
     tone: "total",
     note: incentive ? `Incentive ${incentive.approvalReference}, recorded by GMCA, effective ${incentive.effectiveFrom} to ${incentive.effectiveTo}` : undefined
   });
-  const assumptions = [DEMO_ASSUMPTION, "The corporate rate and incentives are demo configuration.", "Adjustments are free-text lines entered by the company. GMCA has not yet confirmed the corporate schedules or allowable expenses."];
+  const assumptions = [DEMO_ASSUMPTION, `Taxpayer class: ${cls.label} (${describeRate(cls)}). Class rates and incentives are demo configuration.`, "Adjustments are free-text lines entered by the company. GMCA has not yet confirmed the corporate schedules or allowable expenses."];
   return { id: "", kind: "CORPORATE", ruleSetId: rules.id, ruleSetVersion: rules.version, reportingCurrency, computedAt: now, lines, taxMinor: tax, creditsMinor: 0, balanceMinor: tax, warnings: profit < 0 ? ["The return shows a loss. Loss treatment is not configured."] : [], assumptions };
 }
 

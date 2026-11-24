@@ -351,7 +351,7 @@ export function FiledDeclarations({ db, ret }: { db: Db; ret: IndividualTaxRetur
           minWidth="52rem"
           empty="No additional income declared."
           columns={[
-            { key: "d", header: "Source", cell: (s) => <span className="grid"><span>{s.description}</span><span className="text-xs text-muted">{rules?.incomeCategories.find((c) => c.key === s.category)?.label ?? s.category} · {s.payer}</span></span> },
+            { key: "d", header: "Source", cell: (s) => <span className="grid"><span>{s.description}</span><span className="text-xs text-muted">{rules?.taxItems.find((c) => c.key === s.category)?.label ?? s.category} · {s.payer}</span></span> },
             { key: "p", header: "Period", cell: (s) => <span className="text-xs">{formatDate(s.periodFrom, "short")} – {formatDate(s.periodTo, "short")}</span> },
             { key: "c", header: "Treatment", cell: (s) => (s.classification === "EXEMPT" ? "Exempt" : "Taxable") },
             { key: "a", header: "Amount", align: "right", cell: (s) => <ConversionView conversion={s.conversion} /> },

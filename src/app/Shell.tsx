@@ -22,6 +22,7 @@ import {
   RotateCcw,
   ScrollText,
   Settings2,
+  Layers,
   ShieldCheck,
   Sparkles,
   Sun,
@@ -36,6 +37,7 @@ import { ROLE_LABEL } from "../domain/permissions";
 import { getPersistError, resetDemoData } from "../domain/store";
 import type { Role } from "../domain/types";
 import { formatDateTime } from "../lib/format";
+import { appHref } from "../lib/basePath";
 import { cn } from "../lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../shared/ui/dropdown-menu";
 import { isRead, notificationsFor } from "../features/shared/queries";
@@ -102,6 +104,7 @@ const NAV: Record<Role, NavGroup[]> = {
       label: "Configuration",
       items: [
         { to: "/admin/tax", label: "Tax configuration", icon: Settings2 },
+        { to: "/admin/classification", label: "Tax classification", icon: Layers },
         { to: "/admin/reliefs", label: "Relief configuration", icon: Sparkles },
         { to: "/admin/incentives", label: "Company incentives", icon: Building2 },
         { to: "/admin/currency", label: "Currency & rates", icon: Coins },
@@ -141,7 +144,7 @@ function useTheme() {
 export function Logo({ dark }: { dark: boolean }) {
   return (
     <span className="flex items-center gap-3">
-      <img src={dark ? "/logo1.svg" : "/gmc-logo-black.svg"} alt="" className="h-12 w-auto sm:h-14" />
+      <img src={appHref(dark ? "/logo1.svg" : "/gmc-logo-black.svg")} alt="" className="h-12 w-auto sm:h-14" />
       <span className="border-l border-line pl-3 text-[12px] font-medium uppercase leading-tight tracking-[0.12em] text-muted">
         Income
         <br />

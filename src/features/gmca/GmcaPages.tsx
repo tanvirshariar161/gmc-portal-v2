@@ -17,7 +17,7 @@ import { DataTable } from "../../shared/gmc/Table";
 import { CorporateReturnDetail } from "../employer/CorporatePages";
 import { FiledDeclarations } from "../individual/IndividualPages";
 import { DocumentTable, Forbidden, PaymentHistoryTable } from "../shared/TaxpayerShared";
-import { AssessmentBadge, assessmentLabel, CalcBreakdown, DemoTag, DocLink, DocReviewBadge, KeyValue, MetricStrip, PageHeader, PaymentBadge, paymentLabel, Section, SubmissionBadge, ownerName, userName } from "../shared/ui";
+import { AssessmentBadge, assessmentLabel, CalcBreakdown, DemoTag, DocLink, DocReviewBadge, KeyValue, MetricStrip, PageHeader, PaymentBadge, paymentLabel, Section, SubmissionBadge, Tabs, ownerName, userName } from "../shared/ui";
 
 type CaseRow = { a: Assessment; name: string; reference: string; submittedAt?: string; openRequest: boolean; paymentStatus?: ReturnType<typeof liabilityStatus> };
 
@@ -499,6 +499,9 @@ export function TaxpayersPage({ admin }: { admin?: boolean }) {
   const [q, setQ] = useState("");
   const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
   const base = admin ? "/admin/taxpayers" : "/gmca/taxpayers";
+  const [tab, setTab] = useState<"INDIVIDUAL" | "COMPANY">("INDIVIDUAL");
+  const people = db.taxpayers.filter((t) => match(`${t.fullName} ${t.tin}`));
+  const companies = db.companies.filter((c) => match(`${c.name} ${c.uen}`));
   return (
     <>
       <PageHeader title={admin ? "Taxpayers & companies" : "Taxpayers"} lead="Registered individuals and companies. Identifiers are masked in lists." />
@@ -507,10 +510,11 @@ export function TaxpayersPage({ admin }: { admin?: boolean }) {
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-3 size-4 text-muted" />
         <input id="tq" className="control pl-9" placeholder="Search name, TIN or UEN" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
-      <Section title="Individuals">
+      <Tabs label="Taxpayer type" value={tab} onChange={setTab} tabs={[{ key: "INDIVIDUAL", label: <>Individuals <span className="text-muted">{people.length}</span></> }, { key: "COMPANY", label: <>Companies <span className="text-muted">{companies.length}</span></> }]}>
+        {tab === "INDIVIDUAL" ? (
         <DataTable
           caption="Individuals"
-          rows={db.taxpayers.filter((t) => match(`${t.fullName} ${t.tin}`))}
+          rows={people}
           rowKey={(t) => t.id}
           minWidth="52rem"
           columns={[
@@ -521,11 +525,10 @@ export function TaxpayersPage({ admin }: { admin?: boolean }) {
             { key: "f", header: "Returns filed", align: "right", cell: (t) => db.individualReturns.filter((r) => r.taxpayerId === t.id && r.submissionStatus === "SUBMITTED").length }
           ]}
         />
-      </Section>
-      <Section title="Companies">
+        ) : (
         <DataTable
           caption="Companies"
-          rows={db.companies.filter((c) => match(`${c.name} ${c.uen}`))}
+          rows={companies}
           rowKey={(c) => c.id}
           minWidth="52rem"
           columns={[
@@ -536,7 +539,8 @@ export function TaxpayersPage({ admin }: { admin?: boolean }) {
             { key: "d", header: "Declarations filed", align: "right", cell: (c) => db.monthlyDeclarations.filter((d) => d.companyId === c.id && d.submissionStatus === "SUBMITTED").length }
           ]}
         />
-      </Section>
+        )}
+      </Tabs>
     </>
   );
 }

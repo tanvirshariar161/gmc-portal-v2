@@ -1,5 +1,6 @@
 import { forwardRef } from "react";
 import type { ButtonHTMLAttributes, AnchorHTMLAttributes, ReactNode } from "react";
+import { appHref } from "../../lib/basePath";
 import { cn } from "../../lib/utils";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger" | "link";
@@ -52,7 +53,7 @@ export function NavLink({
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { to: string; onNavigate: (path: string) => void; variant?: Variant; size?: Size; children: ReactNode }) {
   return (
     <a
-      href={to}
+      href={appHref(to)}
       className={variant ? buttonClass(variant, size, className) : className}
       onClick={(event) => {
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0) return;

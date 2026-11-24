@@ -64,7 +64,7 @@ export function previewCalculation(d: Db, ret: IndividualTaxReturn, incomeSource
   const rules = ruleSetForYear(d.ruleSets, ret.year);
   const taxpayer = d.taxpayers.find((t) => t.id === ret.taxpayerId);
   const sources = incomeSources.map((s) => ({ ...s, conversion: convert(d.config, s.amountMinor, s.currency, conversionDateFor(d.config, s.periodTo || `${ret.year}-12-31`, nowIso().slice(0, 10))) }));
-  const snapshot = calculateIndividual({ employment: ret.employment, incomeSources: sources, reliefs, residency: taxpayer?.residencyStatus ?? "NOT_DETERMINED" }, rules, d.config.reportingCurrency, nowIso());
+  const snapshot = calculateIndividual({ employment: ret.employment, incomeSources: sources, reliefs, citizenship: taxpayer?.category ?? "CITIZEN", residency: taxpayer?.residencyStatus ?? "NOT_DETERMINED", year: ret.year }, rules, d.config.reportingCurrency, nowIso());
   return { sources, snapshot, rules };
 }
 

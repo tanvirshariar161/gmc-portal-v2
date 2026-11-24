@@ -5,6 +5,7 @@ import type { CorporateFinancials, CorporateTaxReturn, Db } from "../../domain/t
 import { formatDate, formatDateTime, formatPeriod } from "../../lib/format";
 import { formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
 import { activeIncentive, ruleSetForYear } from "../../services/calc";
+import { classForCompany, describeRate } from "../../services/classification";
 import { corporateIssues, ensureCorporateDraft, saveCorporateDraft, submitCorporate } from "../../services/employer";
 import { liabilityStatus, outstanding } from "../../services/payments";
 import { Button } from "../../shared/gmc/Button";
@@ -23,10 +24,11 @@ export function CorporateListPage() {
   const returns = db.corporateReturns.filter((r) => r.companyId === company.id).sort((a, b) => b.year - a.year);
   const years = [db.config.currentFilingYear, db.config.currentFilingYear - 1].filter((y) => !returns.some((r) => r.year === y));
   const inc = activeIncentive(db.incentives, company.id, db.config.currentFilingYear);
+  const cls = classForCompany(ruleSetForYear(db.ruleSets, db.config.currentFilingYear), company.type, db.config.currentFilingYear);
   return (
     <>
       <PageHeader title="Corporate Income Tax Returns" lead="Annual return with audited financial statements and a fixed asset report. GMCA assesses each return and issues a Notice of Assessment." />
-      <Alert tone={inc ? "approved" : "review"} title={inc ? `Approved incentive rate: ${inc.ratePct}%` : `Standard rate: ${ruleSetForYear(db.ruleSets, db.config.currentFilingYear).corporateRatePct}%`}>
+      <Alert tone={inc ? "approved" : "review"} title={inc ? `Approved incentive rate: ${inc.ratePct}%` : `${cls.label} rate: ${describeRate(cls)}`}>
         {inc ? `Recorded by GMCA (${inc.approvalReference}), effective ${formatDate(inc.effectiveFrom)} to ${formatDate(inc.effectiveTo)}. It's applied automatically.` : "No approved incentive is recorded for this company. Incentives are approved by GMCA outside this platform."} Rates are demo configuration.
       </Alert>
       {years.length ? (
@@ -123,7 +125,7 @@ function CorporateWizard({ db, ret }: { db: Db; ret: CorporateTaxReturn }) {
       {step === "profile" ? (
         <Section title="Company">
           <div className="panel p-5">
-            <KeyValue rows={[{ label: "Name", value: company.name }, { label: company.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship number" : "UEN", value: company.uen }, { label: "Sector", value: company.sector }, { label: "Financial year", value: `${ret.year} (calendar year, a demo assumption)` }, { label: "Applicable rate", value: inc ? `${inc.ratePct}% approved incentive (${inc.approvalReference})` : `${ruleSetForYear(db.ruleSets, ret.year).corporateRatePct}% standard` }]} />
+            <KeyValue rows={[{ label: "Name", value: company.name }, { label: company.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship number" : "UEN", value: company.uen }, { label: "Sector", value: company.sector }, { label: "Financial year", value: `${ret.year} (calendar year, a demo assumption)` }, { label: "Applicable rate", value: inc ? `${inc.ratePct}% approved incentive (${inc.approvalReference})` : (() => { const c = classForCompany(ruleSetForYear(db.ruleSets, ret.year), company.type, ret.year); return `${describeRate(c)} (${c.label})`; })() }]} />
           </div>
         </Section>
       ) : null}

@@ -183,7 +183,7 @@ export type CalculationSnapshot = {
   warnings: string[];
   assumptions: string[];
   /** Individual returns only: the headline figures of the working. */
-  figures?: { totalIncomeMinor: Minor; exemptMinor: Minor; taxableMinor: Minor; reliefsMinor: Minor; chargeableMinor: Minor; nonResidentRatePct?: number };
+  figures?: { totalIncomeMinor: Minor; exemptMinor: Minor; taxableMinor: Minor; reliefsMinor: Minor; chargeableMinor: Minor; taxpayerClass?: { key: string; label: string; flatRatePct: number | null } };
 };
 
 // ---------- Individual returns ----------
@@ -420,7 +420,69 @@ export type IntegrationEvent = {
 export type Band = { fromMinor: Minor; toMinor: Minor | null; ratePct: number };
 
 export type ReliefRule = { key: string; label: string; description: string; capMinor: Minor | null; evidenceExamples: string[]; enabled: boolean };
-export type IncomeCategory = { key: string; label: string; defaultClassification: "TAXABLE" | "EXEMPT" };
+
+export type TaxRegime = "INDIVIDUAL" | "CORPORATE";
+
+/**
+ * Who pays which rate. Classes are checked in order and the first enabled match applies,
+ * so specific classes go above general ones. Individuals match on citizenship and the
+ * residency GMCA has recorded; businesses match on entity type.
+ */
+export type TaxpayerClass = {
+  key: string;
+  label: string;
+  description: string;
+  regime: TaxRegime;
+  /** Individual criteria. "ANY" matches every value. Ignored for corporate classes. */
+  citizenship: TaxpayerCategory | "ANY";
+  residency: ResidencyStatus | "ANY";
+  /** Corporate criterion. Ignored for individual classes. */
+  entityType: CompanyType | "ANY";
+  rateBasis: "INDIVIDUAL_BANDS" | "FLAT";
+  /** Set only when rateBasis is FLAT. */
+  flatRatePct: number | null;
+  /** GMC_SOURCE: income items marked foreign-source are outside the charge. Applies to individual returns. */
+  incomeScope: "WORLDWIDE" | "GMC_SOURCE";
+  /** Last income year the class covers (a sunset clause). null means no end date. */
+  lastIncomeYear: number | null;
+  enabled: boolean;
+};
+
+export type TaxItemKind = "INCOME" | "EXPENSE" | "ASSET" | "LIABILITY";
+
+export type TaxTreatment =
+  | "TAXABLE"
+  | "EXEMPT"
+  | "FINAL_WITHHOLDING"
+  | "DEDUCTIBLE"
+  | "PARTLY_DEDUCTIBLE"
+  | "NOT_DEDUCTIBLE"
+  | "CAPITALISED"
+  | "CAPITAL_ALLOWANCE"
+  | "IMMEDIATE_WRITE_OFF"
+  | "NOT_DEPRECIABLE"
+  | "DEDUCTIBLE_WHEN_PAID"
+  | "INTEREST_DEDUCTIBLE"
+  | "NO_TAX_EFFECT";
+
+/** One line of the tax item catalogue: an income, expense, asset or liability type and its tax treatment. */
+export type TaxItem = {
+  key: string;
+  label: string;
+  description: string;
+  kind: TaxItemKind;
+  /** Income can apply to individuals, businesses or both. Expenses, assets and liabilities are business items. */
+  appliesTo: TaxRegime | "BOTH";
+  treatment: TaxTreatment;
+  /** Meaning depends on the treatment: withholding rate, deductible share, annual allowance or interest limit (% of EBITDA). */
+  ratePct: number | null;
+  /** Capital allowance only. */
+  allowanceMethod: "STRAIGHT_LINE" | "REDUCING_BALANCE" | null;
+  /** Income only: where the income arises. */
+  origin: "GMC" | "FOREIGN" | "EITHER" | null;
+  evidenceExamples: string[];
+  enabled: boolean;
+};
 
 export type TaxRuleSet = {
   id: ID;
@@ -429,15 +491,13 @@ export type TaxRuleSet = {
   effectiveFromYear: number;
   status: "ACTIVE" | "RETIRED";
   individualBands: Band[];
-  /** Flat rate applied only when GMCA has recorded the taxpayer as non-resident; null means not configured. */
-  nonResidentRatePct: number | null;
   tdsMethod: "BRACKET_WHOLE_AMOUNT" | "PROGRESSIVE_MONTHLY";
   tdsBands: Band[];
   healthRatePct: number;
   healthAppliesTo: "ALL" | "CITIZENS";
-  corporateRatePct: number;
   reliefs: ReliefRule[];
-  incomeCategories: IncomeCategory[];
+  taxpayerClasses: TaxpayerClass[];
+  taxItems: TaxItem[];
   /** null: carry-forward rule not configured, so excess TDS is shown but not carried. */
   excessCreditCarryForward: boolean | null;
   createdBy: ID;

@@ -7,6 +7,7 @@ import { formatDate, formatPeriod, maskId } from "../../lib/format";
 import { formatAmount, formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
 import { bandBreakdown, bracketFor, ruleSetForYear } from "../../services/calc";
+import { classForTaxpayer } from "../../services/classification";
 import { ensureDraftReturn, payAndSubmit, previewCalculation, saveDraft, selfAssessmentFor, submitReturn, validateReturn } from "../../services/individual";
 import { Button } from "../../shared/gmc/Button";
 import { Checkbox, TextArea, TextField } from "../../shared/gmc/Form";
@@ -469,7 +470,7 @@ function TdsWorking({ db, ret, rules }: { db: Db; ret: IndividualTaxReturn; rule
     .flatMap((d) => d.lines.filter((l) => ids.has(l.employeeId)).map((l) => ({ period: d.period, gross: l.conversion?.reportingMinor ?? 0, tds: l.tdsMinor })));
   const total = months.reduce((s, m) => s + m.tds, 0);
   const pay = months.reduce((s, m) => s + m.gross, 0);
-  const nonResident = taxpayer.residencyStatus === "NON_RESIDENT" && rules.nonResidentRatePct !== null;
+  const cls = classForTaxpayer(rules, taxpayer, ret.year);
   const rows = rules.tdsBands.map((b) => {
     const inBracket = months.filter((m) => bracketFor(m.gross, rules.tdsBands) === b);
     return { b, pay: inBracket.reduce((s, m) => s + m.gross, 0), tds: inBracket.reduce((s, m) => s + m.tds, 0), count: inBracket.length };
@@ -482,9 +483,9 @@ function TdsWorking({ db, ret, rules }: { db: Db; ret: IndividualTaxReturn; rule
       </h2>
       {months.length === 0 ? (
         <p className="text-sm text-muted">No employer has declared TDS for you in {ret.year}.</p>
-      ) : nonResident ? (
+      ) : cls.rateBasis === "FLAT" ? (
         <p className="border border-line bg-sunk px-5 py-4 text-[15px] leading-relaxed text-fg-2">
-          Your employer deducted <strong className="text-fg">{rules.nonResidentRatePct}%</strong> from your {formatMoney(pay)} pay in {ret.year}, because GMCA has recorded you as non-resident.
+          Your employer deducted <strong className="text-fg">{cls.flatRatePct}%</strong> from your {formatMoney(pay)} pay in {ret.year}, the flat rate for your taxpayer class ({cls.label}).
         </p>
       ) : (
         <div className="overflow-x-auto">
@@ -570,9 +571,9 @@ function TaxStep({ db, ret, rules, snapshot }: { db: Db; ret: IndividualTaxRetur
             </ul>
           </div>
         ) : null}
-        {f.nonResidentRatePct !== undefined ? (
+        {f.taxpayerClass && f.taxpayerClass.flatRatePct !== null ? (
           <p className="border border-line bg-sunk px-5 py-4 text-[15px] leading-relaxed text-fg-2">
-            Your income is taxed at <strong className="text-fg">{f.nonResidentRatePct}%</strong> because GMCA has recorded you as non-resident. The non-resident rate is demo configuration pending GMCA's residency rules.
+            Your income is taxed at <strong className="text-fg">{f.taxpayerClass.flatRatePct}%</strong>, the flat rate for your taxpayer class ({f.taxpayerClass.label}). The class follows the residency GMCA has recorded for you, and its rate is demo configuration.
           </p>
         ) : (
           <div className="overflow-x-auto">

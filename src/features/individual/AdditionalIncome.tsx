@@ -5,6 +5,7 @@ import { formatDate } from "../../lib/format";
 import { minorToInput, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
 import { ruleSetForYear } from "../../services/calc";
+import { defaultSourceClassification, individualIncomeItems } from "../../services/classification";
 import { nowIso } from "../../services/clock";
 import { convert, conversionDateFor } from "../../services/currency";
 import { Button } from "../../shared/gmc/Button";
@@ -13,8 +14,8 @@ import { ConversionView, CurrencySelect, RecordUpload, Section } from "../shared
 
 /** Version 2's additional income editor: each source has its own currency and its own bank statement. */
 function blankSource(ret: IndividualTaxReturn, db: Db): IncomeSource {
-  const cat = ruleSetForYear(db.ruleSets, ret.year).incomeCategories[0]!;
-  return { id: `${ret.id}-src-${Date.now().toString(36)}`, category: cat.key, description: "", payer: "", amountMinor: 0, currency: db.config.reportingCurrency, periodFrom: `${ret.year}-01-01`, periodTo: `${ret.year}-12-31`, classification: cat.defaultClassification, supportingDocIds: [] };
+  const cat = individualIncomeItems(ruleSetForYear(db.ruleSets, ret.year))[0]!;
+  return { id: `${ret.id}-src-${Date.now().toString(36)}`, category: cat.key, description: "", payer: "", amountMinor: 0, currency: db.config.reportingCurrency, periodFrom: `${ret.year}-01-01`, periodTo: `${ret.year}-12-31`, classification: defaultSourceClassification(cat), supportingDocIds: [] };
 }
 
 export function AdditionalIncome({ db, ret, sources, setSources, onDocsChanged, owner }: { db: Db; ret: IndividualTaxReturn; sources: IncomeSource[]; setSources: (s: IncomeSource[]) => void; onDocsChanged: (s: IncomeSource[]) => void; owner: { kind: "INDIVIDUAL"; id: string } }) {
@@ -66,11 +67,12 @@ export function AdditionalIncome({ db, ret, sources, setSources, onDocsChanged, 
                 label="Category"
                 value={s.category}
                 onChange={(e) => {
-                  const cat = rules.incomeCategories.find((c) => c.key === e.target.value);
-                  update(s.id, { category: e.target.value, classification: cat?.defaultClassification ?? s.classification });
+                  const cat = rules.taxItems.find((c) => c.key === e.target.value);
+                  update(s.id, { category: e.target.value, classification: cat ? defaultSourceClassification(cat) : s.classification });
                 }}
               >
-                {rules.incomeCategories.map((c) => (
+                {/* A category switched off after this source was entered stays selectable for it. */}
+                {rules.taxItems.filter((c) => c.key === s.category || individualIncomeItems(rules).includes(c)).map((c) => (
                   <option key={c.key} value={c.key}>
                     {c.label}
                   </option>

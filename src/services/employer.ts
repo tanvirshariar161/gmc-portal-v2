@@ -2,6 +2,7 @@ import { audit, nextId, nextReference, notify, ServiceError, type Actor } from "
 import { require, requireOwner } from "../domain/permissions";
 import type { CorporateFinancials, CorporateTaxReturn, Db, Employee, EmployerMonthlyDeclaration, IdentifierType, TaxpayerCategory } from "../domain/types";
 import { activeIncentive, calculateCorporate, healthContribution, monthlyTds, ruleSetForYear, summariseMonthly } from "./calc";
+import { classForCompany, classForTaxpayer } from "./classification";
 import { nowIso, today } from "./clock";
 import { convert, conversionDateFor } from "./currency";
 import { generateDocument } from "./documents";
@@ -130,6 +131,7 @@ export function recalcDeclaration(d: Db, decl: EmployerMonthlyDeclaration) {
   for (const line of decl.lines) {
     const emp = d.employees.find((e) => e.id === line.employeeId);
     const residency = d.taxpayers.find((t) => t.id === emp?.taxpayerId)?.residencyStatus ?? "NOT_DETERMINED";
+    const cls = classForTaxpayer(rules, { category: emp?.category ?? "CITIZEN", residencyStatus: residency }, Number(decl.period.slice(0, 4)));
     line.conversion = convert(d.config, line.amountMinor, line.currency, date);
     const reporting = line.conversion.reportingMinor;
     if (reporting === null) {
@@ -138,7 +140,7 @@ export function recalcDeclaration(d: Db, decl: EmployerMonthlyDeclaration) {
       line.tdsNote = "Waiting for an exchange rate";
       continue;
     }
-    const t = monthlyTds(reporting, rules, residency);
+    const t = monthlyTds(reporting, rules, cls);
     line.tdsMinor = t.tdsMinor;
     line.tdsNote = t.note;
     line.healthMinor = healthContribution(reporting, rules, emp?.category ?? "CITIZEN");
@@ -211,7 +213,9 @@ export function getCorporate(d: Db, id: string) {
 
 export function recalcCorporate(d: Db, r: CorporateTaxReturn) {
   const rules = ruleSetForYear(d.ruleSets, r.year);
-  r.calculation = { ...calculateCorporate(r.financials, rules, activeIncentive(d.incentives, r.companyId, r.year), d.config.reportingCurrency, nowIso()), id: nextId(d, "CALC") };
+  const company = d.companies.find((c) => c.id === r.companyId);
+  if (!company) throw new ServiceError("Company not found.", "NOT_FOUND");
+  r.calculation = { ...calculateCorporate(r.financials, rules, classForCompany(rules, company.type, r.year), activeIncentive(d.incentives, r.companyId, r.year), d.config.reportingCurrency, nowIso()), id: nextId(d, "CALC") };
 }
 
 export function ensureCorporateDraft(d: Db, actor: Actor, companyId: string, year: number) {

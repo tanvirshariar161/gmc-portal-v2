@@ -1,5 +1,5 @@
 import type { Actor } from "./store";
-import type { Company, Db, Employee, IncomeSource, IndividualTaxpayer, ReliefClaim, TaxRuleSet, User } from "./types";
+import type { Company, Db, Employee, IncomeSource, IndividualTaxpayer, ReliefClaim, TaxItem, TaxpayerClass, TaxRuleSet, User } from "./types";
 import { withClock } from "../services/clock";
 import { uploadDocument } from "../services/documents";
 import { ensureDraftReturn, payAndSubmit, saveDraft, submitReturn } from "../services/individual";
@@ -17,6 +17,68 @@ import { toMinor } from "../lib/money";
 const SEED_AT = "2025-01-01T08:00:00.000Z";
 const k = (major: number) => toMinor(major);
 
+/**
+ * Taxpayer classes. Order matters: the first enabled match applies. The seeded set keeps the
+ * earlier behaviour (bands for everyone, 0% only once GMCA records non-residency). The
+ * non-citizen class follows secondary sources on the Income Tax Act 2025 and stays off
+ * until GMCA confirms it.
+ */
+const cls = (c: Partial<TaxpayerClass> & Pick<TaxpayerClass, "key" | "label" | "description" | "regime" | "rateBasis">): TaxpayerClass => ({ citizenship: "ANY", residency: "ANY", entityType: "ANY", flatRatePct: null, incomeScope: "WORLDWIDE", lastIncomeYear: null, enabled: true, ...c });
+const DEMO_CLASSES: TaxpayerClass[] = [
+  cls({ key: "IND_NON_RESIDENT", label: "Non-resident individual", description: "Taxpayers GMCA has recorded as non-resident. Demo rate pending GMCA's residency rules.", regime: "INDIVIDUAL", residency: "NON_RESIDENT", rateBasis: "FLAT", flatRatePct: 0, incomeScope: "GMC_SOURCE" }),
+  cls({ key: "IND_NON_CITIZEN_2030", label: "Non-citizen (to 2030)", description: "Secondary sources report 0% for non-citizens of Bhutan on chargeable income derived on or before 31 December 2030. Not confirmed by GMCA, so it is switched off.", regime: "INDIVIDUAL", citizenship: "FOREIGN", rateBasis: "FLAT", flatRatePct: 0, incomeScope: "GMC_SOURCE", lastIncomeYear: 2030, enabled: false }),
+  cls({ key: "IND_RESIDENT", label: "Resident individual", description: "Taxpayers GMCA has recorded as resident. Sources describe residency as living or working in GMC for at least 183 days in the tax year.", regime: "INDIVIDUAL", residency: "RESIDENT", rateBasis: "INDIVIDUAL_BANDS" }),
+  cls({ key: "IND_STANDARD", label: "Individual, residency not determined", description: "Everyone not matched above. Nationality alone never changes the rate.", regime: "INDIVIDUAL", rateBasis: "INDIVIDUAL_BANDS" }),
+  cls({ key: "CORP_COMPANY", label: "Company", description: "Standard corporate rate. Approved incentives override it for their effective period.", regime: "CORPORATE", entityType: "COMPANY", rateBasis: "FLAT", flatRatePct: 15 }),
+  cls({ key: "CORP_SOLE_PROP", label: "Sole proprietorship", description: "Taxed like a company in this demo. Many regimes tax sole proprietors at individual rates: switch to the Income Tax Act bands if GMCA confirms that.", regime: "CORPORATE", entityType: "SOLE_PROPRIETORSHIP", rateBasis: "FLAT", flatRatePct: 15 })
+];
+
+/**
+ * Tax item catalogue. Individual income keys match the earlier income categories, so existing
+ * returns keep their labels. Business treatments and allowance rates are illustrative, in the
+ * style of the Singapore statutes GMC adopts, until GMCA publishes its schedules.
+ */
+const item = (i: Partial<TaxItem> & Pick<TaxItem, "key" | "label" | "kind" | "treatment">): TaxItem => ({ description: "", appliesTo: "CORPORATE", ratePct: null, allowanceMethod: null, origin: i.kind === "INCOME" ? "EITHER" : null, evidenceExamples: [], enabled: true, ...i });
+const DEMO_ITEMS: TaxItem[] = [
+  item({ key: "RENTAL", label: "Rental income", kind: "INCOME", appliesTo: "BOTH", treatment: "TAXABLE", origin: "GMC", evidenceExamples: ["Tenancy agreement", "Rent receipts"] }),
+  item({ key: "BUSINESS", label: "Business or professional income", kind: "INCOME", appliesTo: "INDIVIDUAL", treatment: "TAXABLE", evidenceExamples: ["Invoices", "Business bank statement"] }),
+  item({ key: "DIVIDEND", label: "Dividends", kind: "INCOME", appliesTo: "BOTH", treatment: "EXEMPT", description: "Secondary sources describe a one-tier system: profits are taxed in the company, with no further tax on dividends.", evidenceExamples: ["Dividend voucher"] }),
+  item({ key: "INTEREST", label: "Interest", kind: "INCOME", appliesTo: "BOTH", treatment: "TAXABLE", evidenceExamples: ["Bank interest certificate"] }),
+  item({ key: "FOREIGN_EMPLOYMENT", label: "Employment income outside GMC", kind: "INCOME", appliesTo: "INDIVIDUAL", treatment: "TAXABLE", origin: "FOREIGN", description: "Outside the charge for classes taxed on GMC-source income only.", evidenceExamples: ["Foreign payslips", "Foreign tax certificate"] }),
+  item({ key: "CAPITAL_GAIN", label: "Capital gains", kind: "INCOME", appliesTo: "BOTH", treatment: "EXEMPT", description: "Sources report no capital gains tax in GMC.", evidenceExamples: ["Sale and purchase agreements"] }),
+  item({ key: "GIFT", label: "Gifts and inheritance", kind: "INCOME", appliesTo: "INDIVIDUAL", treatment: "EXEMPT", evidenceExamples: ["Deed of gift", "Probate or succession document"] }),
+  item({ key: "OTHER", label: "Other income", kind: "INCOME", appliesTo: "INDIVIDUAL", treatment: "TAXABLE" }),
+  item({ key: "TRADING", label: "Trading revenue", kind: "INCOME", treatment: "TAXABLE", origin: "GMC" }),
+  item({ key: "ROYALTY", label: "Royalties received", kind: "INCOME", treatment: "TAXABLE", evidenceExamples: ["Licence agreement"] }),
+
+  item({ key: "EXP_COST_OF_SALES", label: "Cost of sales", kind: "EXPENSE", treatment: "DEDUCTIBLE" }),
+  item({ key: "EXP_PAYROLL", label: "Salaries, wages and health contributions", kind: "EXPENSE", treatment: "DEDUCTIBLE", evidenceExamples: ["Monthly TDS declarations"] }),
+  item({ key: "EXP_RENT", label: "Rent and utilities", kind: "EXPENSE", treatment: "DEDUCTIBLE" }),
+  item({ key: "EXP_ENTERTAINMENT", label: "Entertainment", kind: "EXPENSE", treatment: "PARTLY_DEDUCTIBLE", ratePct: 50, description: "Demo share." }),
+  item({ key: "EXP_DEPRECIATION", label: "Accounting depreciation and amortisation", kind: "EXPENSE", treatment: "NOT_DEDUCTIBLE", description: "Replaced by the capital allowances on each asset class." }),
+  item({ key: "EXP_FINES", label: "Fines and penalties", kind: "EXPENSE", treatment: "NOT_DEDUCTIBLE" }),
+  item({ key: "EXP_INCOME_TAX", label: "Income tax expense", kind: "EXPENSE", treatment: "NOT_DEDUCTIBLE" }),
+  item({ key: "EXP_CAPEX", label: "Capital expenditure", kind: "EXPENSE", treatment: "CAPITALISED", description: "Relieved through the asset class it is added to." }),
+
+  item({ key: "AST_LAND", label: "Land", kind: "ASSET", treatment: "NOT_DEPRECIABLE" }),
+  item({ key: "AST_BUILDINGS", label: "Buildings and structures", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 3, allowanceMethod: "STRAIGHT_LINE", description: "Demo rate." }),
+  item({ key: "AST_PLANT", label: "Plant and machinery", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 33.33, allowanceMethod: "STRAIGHT_LINE", description: "Demo rate: written off over three years.", evidenceExamples: ["Fixed asset register", "Purchase invoices"] }),
+  item({ key: "AST_VEHICLES", label: "Commercial vehicles", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 20, allowanceMethod: "REDUCING_BALANCE", description: "Demo rate." }),
+  item({ key: "AST_COMPUTERS", label: "Computers and software", kind: "ASSET", treatment: "IMMEDIATE_WRITE_OFF" }),
+  item({ key: "AST_LOW_VALUE", label: "Low-value assets", kind: "ASSET", treatment: "IMMEDIATE_WRITE_OFF", description: "Demo: items below a threshold GMCA sets." }),
+  item({ key: "AST_INTANGIBLE", label: "Intellectual property and other intangibles", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 20, allowanceMethod: "STRAIGHT_LINE", description: "Demo rate: written down over five years." }),
+  item({ key: "AST_FINANCIAL", label: "Investments and financial assets", kind: "ASSET", treatment: "NOT_DEPRECIABLE" }),
+  item({ key: "AST_INVENTORY", label: "Inventory (trading stock)", kind: "ASSET", treatment: "NOT_DEPRECIABLE", description: "Relieved through cost of sales when sold." }),
+
+  item({ key: "LIA_PROVISIONS", label: "Provisions (warranty, restructuring, legal)", kind: "LIABILITY", treatment: "DEDUCTIBLE_WHEN_PAID" }),
+  item({ key: "LIA_ACCRUED_PAY", label: "Accrued bonuses and leave pay", kind: "LIABILITY", treatment: "DEDUCTIBLE_WHEN_PAID" }),
+  item({ key: "LIA_LEASES", label: "Lease liabilities", kind: "LIABILITY", treatment: "DEDUCTIBLE_WHEN_PAID", description: "Lease payments are deducted as they are paid." }),
+  item({ key: "LIA_BANK_LOANS", label: "Bank borrowings", kind: "LIABILITY", treatment: "INTEREST_DEDUCTIBLE" }),
+  item({ key: "LIA_RELATED_LOANS", label: "Shareholder and related-party loans", kind: "LIABILITY", treatment: "INTEREST_DEDUCTIBLE", ratePct: 30, description: "Demo interest limit." }),
+  item({ key: "LIA_TRADE_PAYABLES", label: "Trade payables", kind: "LIABILITY", treatment: "NO_TAX_EFFECT" }),
+  item({ key: "LIA_TAX_PAYABLE", label: "Tax payable", kind: "LIABILITY", treatment: "NO_TAX_EFFECT" })
+];
+
 const DEMO_RULES = (id: string, version: string, year: number): TaxRuleSet => ({
   id,
   version,
@@ -32,7 +94,6 @@ const DEMO_RULES = (id: string, version: string, year: number): TaxRuleSet => ({
     { fromMinor: k(200_000), toMinor: k(500_000), ratePct: 13 },
     { fromMinor: k(500_000), toMinor: null, ratePct: 15 }
   ],
-  nonResidentRatePct: 0,
   tdsMethod: "BRACKET_WHOLE_AMOUNT",
   tdsBands: [
     { fromMinor: 0, toMinor: k(1_000), ratePct: 0 },
@@ -42,22 +103,14 @@ const DEMO_RULES = (id: string, version: string, year: number): TaxRuleSet => ({
   ],
   healthRatePct: 1,
   healthAppliesTo: "ALL",
-  corporateRatePct: 15,
   reliefs: [
     { key: "SPOUSE", label: "Spouse relief", description: "For a taxpayer supporting a spouse. Demo value.", capMinor: k(2_000), evidenceExamples: ["Marriage certificate"], enabled: true },
     { key: "DISABILITY", label: "Disability relief", description: "For a taxpayer or dependant with a certified disability. Demo value.", capMinor: k(3_000), evidenceExamples: ["Disability certificate from a recognised medical board"], enabled: true },
     { key: "CHILD_EDUCATION", label: "Child education relief", description: "School fees for dependent children. Demo value.", capMinor: k(1_500), evidenceExamples: ["School fee receipts", "Birth certificate"], enabled: true },
     { key: "LIFE_INSURANCE", label: "Life insurance premium", description: "Premiums on a life policy for the taxpayer. Demo value.", capMinor: k(1_000), evidenceExamples: ["Premium statement from the insurer"], enabled: true }
   ],
-  incomeCategories: [
-    { key: "RENTAL", label: "Rental income", defaultClassification: "TAXABLE" },
-    { key: "BUSINESS", label: "Business or professional income", defaultClassification: "TAXABLE" },
-    { key: "DIVIDEND", label: "Dividends", defaultClassification: "TAXABLE" },
-    { key: "INTEREST", label: "Interest", defaultClassification: "TAXABLE" },
-    { key: "FOREIGN_EMPLOYMENT", label: "Employment income outside GMC", defaultClassification: "TAXABLE" },
-    { key: "GIFT", label: "Gifts and inheritance", defaultClassification: "EXEMPT" },
-    { key: "OTHER", label: "Other income", defaultClassification: "TAXABLE" }
-  ],
+  taxpayerClasses: DEMO_CLASSES,
+  taxItems: DEMO_ITEMS,
   excessCreditCarryForward: null,
   createdBy: "usr-admin",
   createdAt: SEED_AT
@@ -113,7 +166,7 @@ function base(): Db {
   ];
 
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     seededAt: new Date().toISOString(),
     counters: {},
     users,

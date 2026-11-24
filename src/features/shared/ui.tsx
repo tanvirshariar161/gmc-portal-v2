@@ -1,6 +1,6 @@
 import { FileText, FlaskConical, Paperclip, Trash2, Upload } from "lucide-react";
 import { useId, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { Link, useRun } from "../../app/core";
 import type { Actor } from "../../domain/store";
 import type { AssessmentStatus, CalculationSnapshot, Conversion, Db, DocumentCategory, DocumentReviewStatus, OwnerRef, PaymentStatus, RelatedRef, SubmissionStatus, TaxDocument } from "../../domain/types";
@@ -364,4 +364,46 @@ export function ownerName(db: Db, owner: OwnerRef) {
 export function userName(db: Db, id?: string) {
   if (!id) return "—";
   return db.users.find((u) => u.id === id)?.name ?? (id === "system" ? "Platform" : "Unknown user");
+}
+
+/** WAI-ARIA tabs: one tab stop, arrow keys, Home and End move between tabs. `marker` flags a tab (e.g. unpublished changes). */
+export function Tabs<K extends string>({ label, tabs, value, onChange, children }: { label: string; tabs: { key: K; label: ReactNode; marker?: string }[]; value: K; onChange: (k: K) => void; children: ReactNode }) {
+  const id = useId();
+  const onKey = (e: KeyboardEvent<HTMLButtonElement>) => {
+    const i = tabs.findIndex((t) => t.key === value);
+    const j = e.key === "ArrowRight" ? (i + 1) % tabs.length : e.key === "ArrowLeft" ? (i + tabs.length - 1) % tabs.length : e.key === "Home" ? 0 : e.key === "End" ? tabs.length - 1 : -1;
+    if (j < 0) return;
+    e.preventDefault();
+    onChange(tabs[j]!.key);
+    document.getElementById(`${id}-tab-${tabs[j]!.key}`)?.focus();
+  };
+  return (
+    <div className="grid gap-6">
+      <div role="tablist" aria-label={label} className="flex flex-wrap border-b border-line">
+        {tabs.map((t) => {
+          const selected = t.key === value;
+          return (
+            <button
+              key={t.key}
+              id={`${id}-tab-${t.key}`}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              aria-controls={`${id}-panel`}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(t.key)}
+              onKeyDown={onKey}
+              className={cn("-mb-px flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium", selected ? "border-primary text-brand-ink" : "border-transparent text-fg-2 hover:text-fg")}
+            >
+              {t.label}
+              {t.marker ? <span className="size-1.5 rounded-full bg-act-line" aria-label={`(${t.marker})`} /> : null}
+            </button>
+          );
+        })}
+      </div>
+      <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-tab-${value}`} className="grid gap-8">
+        {children}
+      </div>
+    </div>
+  );
 }

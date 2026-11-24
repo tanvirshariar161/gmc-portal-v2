@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useActor, useDb, useDocumentTitle, useRun, useToast } from "../../app/core";
 import { PERMISSIONS, ROLE_LABEL, ROLE_PERMISSIONS } from "../../domain/permissions";
 import { resetDemoData } from "../../domain/store";
-import type { Band, BankMode, Db, IncomeCategory, IntegrationMode, ReliefRule, ResidencyStatus, Role, TaxRuleSet } from "../../domain/types";
+import type { Band, BankMode, Db, IntegrationMode, ReliefRule, ResidencyStatus, Role, TaxRuleSet } from "../../domain/types";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { formatMoney, formatRate, minorToInput, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
@@ -15,6 +15,7 @@ import { Checkbox, SelectField, TextArea, TextField } from "../../shared/gmc/For
 import { Alert, StatusBadge } from "../../shared/gmc/Layout";
 import { DataTable } from "../../shared/gmc/Table";
 import { TaxpayerDetail } from "../gmca/GmcaPages";
+import { ClassificationEditor } from "./ClassificationEditor";
 import { DemoTag, KeyValue, MetricStrip, PageHeader, Section, ownerName, userName } from "../shared/ui";
 
 // ---------- Overview ----------
@@ -239,7 +240,6 @@ export function TaxConfigPage() {
   return (
     <>
       <PageHeader title="Tax configuration" lead="Rates and rules used by the calculation engine. Publishing creates a new version; submitted returns keep the version they were calculated with." />
-      <Alert tone="review" title="Where these values come from">Individual bands: GMC Income Tax Act 2025. Monthly TDS table: GMCA TDS note (brackets inclusive at the top, rate on the whole month). Health contribution, non-resident rate, reliefs and the corporate rate are demo configuration until GMCA confirms them.</Alert>
       <SelectField label="Rules for financial year" value={String(year)} onChange={(e) => setYear(Number(e.target.value))} className="w-56">
         {[...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => b - a).map((y) => <option key={y} value={y}>{y}</option>)}
       </SelectField>
@@ -252,7 +252,7 @@ export function TaxConfigPage() {
   );
 }
 
-function RuleSetEditor({ db, base, sections }: { db: Db; base: TaxRuleSet; sections: ("rates" | "reliefs")[] }) {
+function RuleSetEditor({ db, base, sections }: { db: Db; base: TaxRuleSet; sections: ("rates" | "reliefs" | "classification")[] }) {
   const run = useRun();
   const [draft, setDraft] = useState<TaxRuleSet>(() => structuredClone(base));
   const [reason, setReason] = useState("");
@@ -274,7 +274,7 @@ function RuleSetEditor({ db, base, sections }: { db: Db; base: TaxRuleSet; secti
             <div className="grid gap-6 border border-line bg-surface p-5 lg:grid-cols-2">
               <BandsEditor label={`Annual bands (${db.config.reportingCurrency})`} bands={draft.individualBands} onChange={(b) => set({ individualBands: b })} />
               <div className="grid content-start gap-4">
-                <TextField label="Non-resident flat rate %" inputMode="decimal" value={draft.nonResidentRatePct === null ? "" : String(draft.nonResidentRatePct)} placeholder="Not configured" onChange={(e) => set({ nonResidentRatePct: e.target.value === "" ? null : Number(e.target.value) })} hint="Applied only to taxpayers GMCA has recorded as non-resident. The minutes mention 0% in the discussed context; eligibility must be confirmed." />
+                <p className="text-sm text-fg-2">These bands apply to every taxpayer class set to the Income Tax Act bands. Flat rates, such as the non-resident rate, belong to their class under <Link className="underline" to="/admin/classification">Tax classification</Link>.</p>
                 <SelectField label="Excess TDS carry-forward" value={draft.excessCreditCarryForward === null ? "NULL" : String(draft.excessCreditCarryForward)} onChange={(e) => set({ excessCreditCarryForward: e.target.value === "NULL" ? null : e.target.value === "true" })}>
                   <option value="NULL">Not configured</option>
                   <option value="true">Carry forward</option>
@@ -301,13 +301,12 @@ function RuleSetEditor({ db, base, sections }: { db: Db; base: TaxRuleSet; secti
             </div>
           </Section>
           <Section title="Corporate income tax">
-            <div className="grid max-w-md gap-4 border border-line bg-surface p-5">
-              <TextField label="Standard corporate rate %" inputMode="decimal" value={String(draft.corporateRatePct)} onChange={(e) => set({ corporateRatePct: Number(e.target.value) || 0 })} hint="15% was discussed in the minutes. Approved company incentives override it for their effective period." />
-            </div>
+            <p className="max-w-2xl border border-line bg-surface p-5 text-sm text-fg-2">Corporate rates are set per entity type under <Link className="underline" to="/admin/classification">Tax classification</Link>. Approved company incentives override them for their effective period.</p>
           </Section>
         </>
       ) : null}
-      {sections.includes("reliefs") ? <ReliefEditor reliefs={draft.reliefs} categories={draft.incomeCategories} onReliefs={(r) => set({ reliefs: r })} onCategories={(c) => set({ incomeCategories: c })} currency={db.config.reportingCurrency} /> : null}
+      {sections.includes("reliefs") ? <ReliefEditor reliefs={draft.reliefs} onReliefs={(r) => set({ reliefs: r })} currency={db.config.reportingCurrency} /> : null}
+      {sections.includes("classification") ? <ClassificationEditor draft={draft} base={base} onClasses={(c) => set({ taxpayerClasses: c })} onItems={(i) => set({ taxItems: i })} /> : null}
       <div className="grid max-w-2xl gap-3 border border-primary bg-surface p-5">
         <TextArea label="Reason for the change" required rows={2} value={reason} onChange={(e) => setReason(e.target.value)} hint="Saved in the audit log with the new version." />
         <div className="flex flex-wrap gap-3">
@@ -319,7 +318,7 @@ function RuleSetEditor({ db, base, sections }: { db: Db; base: TaxRuleSet; secti
   );
 }
 
-function ReliefEditor({ reliefs, categories, onReliefs, onCategories, currency }: { reliefs: ReliefRule[]; categories: IncomeCategory[]; onReliefs: (r: ReliefRule[]) => void; onCategories: (c: IncomeCategory[]) => void; currency: string }) {
+function ReliefEditor({ reliefs, onReliefs, currency }: { reliefs: ReliefRule[]; onReliefs: (r: ReliefRule[]) => void; currency: string }) {
   const upd = (i: number, patch: Partial<ReliefRule>) => onReliefs(reliefs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   return (
     <>
@@ -337,19 +336,6 @@ function ReliefEditor({ reliefs, categories, onReliefs, onCategories, currency }
           ))}
         </div>
       </Section>
-      <Section title="Income categories" description="Shown to taxpayers when they add an additional income source, with a default taxable or exempt treatment. Not a statutory list." actions={<Button size="sm" variant="secondary" onClick={() => onCategories([...categories, { key: `CAT_${categories.length + 1}`, label: "", defaultClassification: "TAXABLE" }])}><Plus /> Add category</Button>}>
-        <div className="grid gap-2 border border-line bg-surface p-5">
-          {categories.map((c, i) => (
-            <div key={c.key} className="grid grid-cols-[minmax(0,1fr)_12rem] items-end gap-3">
-              <TextField label={i === 0 ? "Category" : <span className="sr-only">Category</span>} value={c.label} onChange={(e) => onCategories(categories.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
-              <SelectField label={i === 0 ? "Default treatment" : <span className="sr-only">Default treatment</span>} value={c.defaultClassification} onChange={(e) => onCategories(categories.map((x, j) => (j === i ? { ...x, defaultClassification: e.target.value as "TAXABLE" | "EXEMPT" } : x)))}>
-                <option value="TAXABLE">Taxable</option>
-                <option value="EXEMPT">Exempt</option>
-              </SelectField>
-            </div>
-          ))}
-        </div>
-      </Section>
     </>
   );
 }
@@ -361,11 +347,27 @@ export function ReliefConfigPage() {
   const active = ruleSetForYear(db.ruleSets, year);
   return (
     <>
-      <PageHeader title="Relief configuration" lead="Relief categories, demo limits and evidence examples, plus the income categories taxpayers choose from. Changes publish a new rule set version." />
+      <PageHeader title="Relief configuration" lead="Relief categories, demo limits and evidence examples. Income categories are now part of the tax item catalogue under Tax classification. Changes publish a new rule set version." />
       <SelectField label="Rules for financial year" value={String(year)} onChange={(e) => setYear(Number(e.target.value))} className="w-56">
         {[...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => b - a).map((y) => <option key={y} value={y}>{y}</option>)}
       </SelectField>
       <RuleSetEditor key={active.id} db={db} base={active} sections={["reliefs"]} />
+    </>
+  );
+}
+
+export function ClassificationPage() {
+  useDocumentTitle("Tax classification");
+  const db = useDb();
+  const [year, setYear] = useState(db.config.currentFilingYear);
+  const active = ruleSetForYear(db.ruleSets, year);
+  return (
+    <>
+      <PageHeader title="Tax classification" lead="Who pays which rate, and how each kind of income, expense, asset and liability is treated. Changes publish a new rule set version; submitted returns keep the version they were calculated with." />
+      <SelectField label="Rules for financial year" value={String(year)} onChange={(e) => setYear(Number(e.target.value))} className="w-56">
+        {[...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => b - a).map((y) => <option key={y} value={y}>{y}</option>)}
+      </SelectField>
+      <RuleSetEditor key={active.id} db={db} base={active} sections={["classification"]} />
     </>
   );
 }
