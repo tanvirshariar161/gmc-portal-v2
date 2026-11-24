@@ -2,7 +2,8 @@ import { CheckCircle2, Download, Flag, MessageSquarePlus, Search, UserCheck } fr
 import { useMemo, useState } from "react";
 import { Link, navigate, useActor, useDb, useDocumentTitle, useRun } from "../../app/core";
 import { canActOnAssessment } from "../../domain/permissions";
-import type { Assessment, AssessmentStatus, Db, DocumentReviewStatus, OwnerRef, TaxDocument } from "../../domain/types";
+import type { Assessment, AssessmentStatus, Db, DocumentReviewStatus, Liability, OwnerRef, Payment, ResidencyStatus, TaxDocument } from "../../domain/types";
+import { setResidency } from "../../services/admin";
 import { formatDate, formatDateTime, formatPeriod, maskId } from "../../lib/format";
 import { formatMoney, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
@@ -17,7 +18,7 @@ import { DataTable } from "../../shared/gmc/Table";
 import { CorporateReturnDetail } from "../employer/CorporatePages";
 import { FiledDeclarations } from "../individual/IndividualPages";
 import { DocumentTable, Forbidden, PaymentHistoryTable } from "../shared/TaxpayerShared";
-import { AssessmentBadge, assessmentLabel, CalcBreakdown, DemoTag, DocLink, DocReviewBadge, KeyValue, MetricStrip, PageHeader, PaymentBadge, paymentLabel, Section, SubmissionBadge, Tabs, ownerName, userName } from "../shared/ui";
+import { AssessmentBadge, assessmentLabel, CalcBreakdown, DocLink, DocReviewBadge, KeyValue, MetricStrip, PageHeader, PaymentBadge, paymentLabel, Section, SubmissionBadge, Tabs, ownerName, userName } from "../shared/ui";
 
 type CaseRow = { a: Assessment; name: string; reference: string; submittedAt?: string; openRequest: boolean; paymentStatus?: ReturnType<typeof liabilityStatus> };
 
@@ -46,7 +47,7 @@ function CaseTable({ db, rows, caption }: { db: Db; rows: CaseRow[]; caption: st
         { key: "who", header: "Taxpayer", cell: (r) => <span className="grid"><span>{r.name}</span><span className="text-xs text-muted">{r.a.returnKind === "INDIVIDUAL" ? "Individual" : "Corporate"} · {r.a.year}</span></span> },
         { key: "sub", header: "Submitted", cell: (r) => formatDate(r.submittedAt, "short") },
         { key: "status", header: "Assessment", cell: (r) => <AssessmentBadge status={r.a.status} /> },
-        { key: "who2", header: "Assessor", cell: (r) => userName(db, r.a.assignedTo) },
+        { key: "who2", header: "Tax officer", cell: (r) => userName(db, r.a.assignedTo) },
         { key: "req", header: "Request", cell: (r) => (r.openRequest ? <StatusBadge tone="action">Open</StatusBadge> : <span className="text-muted">—</span>) },
         { key: "pay", header: "Payment", cell: (r) => (r.paymentStatus ? <PaymentBadge status={r.paymentStatus} /> : <span className="text-muted">—</span>) }
       ]}
@@ -66,7 +67,7 @@ export function GmcaOverview() {
   const attention = mine.filter((r) => r.a.status === "RESPONSE_RECEIVED" || r.a.status === "ASSIGNED");
   return (
     <>
-      <PageHeader title="Overview" lead={`Financial year ${db.config.currentFilingYear} and earlier, seeded demo data as of today. KPIs are suggestions from the brief, not an agreed specification.`} actions={<Button onClick={() => navigate("/gmca/queue")}>Open work queue</Button>} />
+      <PageHeader title="Overview" lead={`Returns, assessments and payments for financial year ${db.config.currentFilingYear} and earlier.`} actions={<Button onClick={() => navigate("/gmca/queue")}>Assessment of returns</Button>} />
       <MetricStrip
         items={[
           { label: "Registered taxpayers", value: stats.taxpayers, hint: `${db.taxpayers.length} individuals · ${db.companies.length} companies` },
@@ -77,7 +78,7 @@ export function GmcaOverview() {
       />
       <MetricStrip
         items={[
-          { label: "Tax collected", value: formatMoney(stats.collected), hint: "Confirmed DK Bank payments (simulated)" },
+          { label: "Tax collected", value: formatMoney(stats.collected), hint: "Confirmed DK Bank payments" },
           { label: "Outstanding liabilities", value: formatMoney(stats.outstanding) },
           { label: "Unpaid or failed", value: stats.unpaidCount },
           { label: "Late filings", value: "—", hint: "Not computed: deadlines are not configured" }
@@ -144,11 +145,43 @@ function FilingBars({ db }: { db: Db }) {
 
 // ---------- Queue ----------
 
-export function QueuePage({ query, fixedKind }: { query: URLSearchParams; fixedKind?: "INDIVIDUAL" | "CORPORATE" }) {
+type AssessmentTab = "INDIVIDUAL" | "CORPORATE" | "REQUESTS";
+const TAB_PARAM: Record<AssessmentTab, string> = { INDIVIDUAL: "individual", CORPORATE: "corporate", REQUESTS: "requests" };
+
+/** Assessment of returns: individual and corporate returns and information requests, one tab each. */
+export function QueuePage({ query }: { query: URLSearchParams }) {
+  useDocumentTitle("Assessment of returns");
+  const db = useDb();
+  const fromQuery = (Object.keys(TAB_PARAM) as AssessmentTab[]).find((k) => TAB_PARAM[k] === query.get("tab")) ?? "INDIVIDUAL";
+  const [tab, setTab] = useState<AssessmentTab>(fromQuery);
+  const count = (k: "INDIVIDUAL" | "CORPORATE") => db.assessments.filter((a) => a.returnKind === k && a.status !== "COMPLETED").length;
+  const openRequests = db.infoRequests.filter((q) => q.status !== "CLOSED").length;
+  const choose = (k: AssessmentTab) => {
+    setTab(k);
+    navigate(`/gmca/queue?tab=${TAB_PARAM[k]}`, { replace: true });
+  };
+  return (
+    <>
+      <PageHeader title="Assessment of returns" lead="All submitted returns, centrally. You can work on cases assigned to you; pick up unassigned ones from the case page." />
+      <Tabs
+        label="Assessment of returns"
+        value={tab}
+        onChange={choose}
+        tabs={[
+          { key: "INDIVIDUAL", label: <>Individual <span className="text-muted">{count("INDIVIDUAL")}</span></> },
+          { key: "CORPORATE", label: <>Corporate <span className="text-muted">{count("CORPORATE")}</span></> },
+          { key: "REQUESTS", label: <>Information Requests <span className="text-muted">{openRequests}</span></> }
+        ]}
+      >
+        {tab === "REQUESTS" ? <RequestsTable db={db} /> : <ReturnQueue key={tab} query={query} kind={tab} />}
+      </Tabs>
+    </>
+  );
+}
+
+function ReturnQueue({ query, kind }: { query: URLSearchParams; kind: "INDIVIDUAL" | "CORPORATE" }) {
   const db = useDb();
   const actor = useActor();
-  useDocumentTitle(fixedKind === "INDIVIDUAL" ? "Individual returns" : fixedKind === "CORPORATE" ? "Corporate returns" : "Assessment work queue");
-  const [kind, setKind] = useState<string>(fixedKind ?? "ALL");
   const [status, setStatus] = useState<string>(query.get("status") ?? "ALL");
   const [assigned, setAssigned] = useState<string>(query.get("assigned") ?? "ALL");
   const [year, setYear] = useState<string>("ALL");
@@ -160,7 +193,7 @@ export function QueuePage({ query, fixedKind }: { query: URLSearchParams; fixedK
   const assessors = db.users.filter((u) => u.role === "ASSESSOR");
   const rows = all.filter(
     (r) =>
-      (kind === "ALL" || r.a.returnKind === kind) &&
+      r.a.returnKind === kind &&
       (status === "ALL" || (status === "OPEN" ? r.a.status !== "COMPLETED" : r.a.status === status)) &&
       (assigned === "ALL" || (assigned === "me" ? r.a.assignedTo === actor.id : assigned === "none" ? !r.a.assignedTo : r.a.assignedTo === assigned)) &&
       (year === "ALL" || r.a.year === Number(year)) &&
@@ -169,21 +202,13 @@ export function QueuePage({ query, fixedKind }: { query: URLSearchParams; fixedK
       (!q || `${r.name} ${r.reference}`.toLowerCase().includes(q.toLowerCase()))
   );
   return (
-    <>
-      <PageHeader title={fixedKind === "INDIVIDUAL" ? "Individual returns" : fixedKind === "CORPORATE" ? "Corporate returns" : "Assessment work queue"} lead="All submitted returns, centrally. You can work on cases assigned to you; pick up unassigned ones from the case page." />
-      <div className="grid gap-3 border border-line bg-surface p-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="relative sm:col-span-2 lg:col-span-4">
+    <div className="grid gap-4">
+      <div className="grid gap-3 border border-line bg-surface p-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="relative sm:col-span-2 lg:col-span-5">
           <label htmlFor="q" className="sr-only">Search</label>
           <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-3 size-4 text-muted" />
           <input id="q" className="control pl-9" placeholder="Search taxpayer, company or reference" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        {!fixedKind ? (
-          <SelectField label="Return type" value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="ALL">All</option>
-            <option value="INDIVIDUAL">Individual</option>
-            <option value="CORPORATE">Corporate</option>
-          </SelectField>
-        ) : null}
         <SelectField label="Financial year" value={year} onChange={(e) => setYear(e.target.value)}>
           <option value="ALL">All</option>
           {years.map((y) => <option key={y} value={y}>{y}</option>)}
@@ -193,7 +218,7 @@ export function QueuePage({ query, fixedKind }: { query: URLSearchParams; fixedK
           <option value="OPEN">All open</option>
           {(["NOT_ASSIGNED", "ASSIGNED", "UNDER_REVIEW", "INFO_REQUIRED", "RESPONSE_RECEIVED", "COMPLETED"] as AssessmentStatus[]).map((s) => <option key={s} value={s}>{assessmentLabel(s)}</option>)}
         </SelectField>
-        <SelectField label="Assessor" value={assigned} onChange={(e) => setAssigned(e.target.value)}>
+        <SelectField label="Tax officer" value={assigned} onChange={(e) => setAssigned(e.target.value)}>
           <option value="ALL">Anyone</option>
           <option value="me">Assigned to me</option>
           <option value="none">Not assigned</option>
@@ -209,9 +234,9 @@ export function QueuePage({ query, fixedKind }: { query: URLSearchParams; fixedK
           {(["UNPAID", "PENDING", "PARTIALLY_PAID", "PAID", "FAILED"] as const).map((s) => <option key={s} value={s}>{paymentLabel(s)}</option>)}
         </SelectField>
       </div>
-      <p className="text-sm text-muted" role="status">{rows.length} of {all.filter((r) => !fixedKind || r.a.returnKind === fixedKind).length} returns</p>
-      <CaseTable db={db} rows={rows} caption="Returns" />
-    </>
+      <p className="text-sm text-muted" role="status">{rows.length} of {all.filter((r) => r.a.returnKind === kind).length} returns</p>
+      <CaseTable db={db} rows={rows} caption={kind === "INDIVIDUAL" ? "Individual returns" : "Corporate returns"} />
+    </div>
   );
 }
 
@@ -249,11 +274,11 @@ export function CasePage({ id }: { id: string }) {
 
   return (
     <>
-      <PageHeader title={reference} lead={`${a.returnKind === "INDIVIDUAL" ? "Individual" : "Corporate"} Income Tax Return ${a.year} · ${name}`} back={{ to: "/gmca/queue", label: "Work queue" }} />
+      <PageHeader title={reference} lead={`${a.returnKind === "INDIVIDUAL" ? "Individual" : "Corporate"} Income Tax Return ${a.year} · ${name}`} back={{ to: `/gmca/queue?tab=${a.returnKind === "INDIVIDUAL" ? "individual" : "corporate"}`, label: "Assessment of returns" }} />
       <div className="flex flex-wrap items-center gap-2">
         <SubmissionBadge status="SUBMITTED" />
         <AssessmentBadge status={a.status} />
-        <span className="text-sm text-muted">Assessor: {userName(db, a.assignedTo)}</span>
+        <span className="text-sm text-muted">Tax officer: {userName(db, a.assignedTo)}</span>
       </div>
 
       {!a.assignedTo && !locked ? (
@@ -273,7 +298,7 @@ export function CasePage({ id }: { id: string }) {
           <Section title={party ? "Taxpayer" : "Company"}>
             <div className="panel p-5">
               {party ? (
-                <KeyValue rows={[{ label: "Name", value: party.fullName }, { label: "TIN", value: party.tin }, { label: "Category", value: party.category === "CITIZEN" ? "Bhutanese citizen" : `Foreign national (${party.nationality})` }, { label: "Identifier", value: maskId(party.identifierValue) }, { label: "Residency (recorded by GMCA)", value: party.residencyStatus.replace("_", " ").toLowerCase() }, { label: "Verified", value: <span className="flex items-center gap-2">{party.verification.provider} <DemoTag>Simulated</DemoTag></span> }]} />
+                <KeyValue rows={[{ label: "Name", value: party.fullName }, { label: "TIN", value: party.tin }, { label: "Category", value: party.category === "CITIZEN" ? "Bhutanese citizen" : `Foreign national (${party.nationality})` }, { label: "Identifier", value: maskId(party.identifierValue) }, { label: "Residency (recorded by GMCA)", value: party.residencyStatus.replace("_", " ").toLowerCase() }, { label: "Verified", value: <span className="flex items-center gap-2">{party.verification.provider}</span> }]} />
               ) : company ? (
                 <KeyValue rows={[{ label: "Name", value: company.name }, { label: "UEN", value: company.uen }, { label: "Type", value: company.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship" : "Company" }, { label: "Sector", value: company.sector }]} />
               ) : null}
@@ -466,17 +491,17 @@ export function CasePage({ id }: { id: string }) {
 
 // ---------- Requests ----------
 
-export function GmcaRequestsPage() {
-  useDocumentTitle("Information requests");
-  const db = useDb();
+function RequestsTable({ db }: { db: Db }) {
   const rows = [...db.infoRequests].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt));
   return (
-    <>
-      <PageHeader title="Additional information requests" lead="Requests sent to taxpayers and their responses." />
+    <div className="grid gap-4">
+      <p className="text-sm text-muted">Requests sent to taxpayers and their responses. Open one to go to its return.</p>
       <DataTable
-        caption="Requests"
+        caption="Information requests"
         rows={rows}
         rowKey={(r) => r.id}
+        onRowClick={(r) => navigate(`/gmca/cases/${r.assessmentId}`)}
+        empty="No information requests yet."
         minWidth="56rem"
         columns={[
           { key: "r", header: "Request", cell: (r) => <Link className="text-brand-ink underline-offset-4 hover:underline" to={`/gmca/cases/${r.assessmentId}`}>{r.reference}</Link> },
@@ -487,24 +512,24 @@ export function GmcaRequestsPage() {
           { key: "st", header: "Status", cell: (r) => <StatusBadge tone={r.status === "OPEN" ? "action" : r.status === "RESPONDED" ? "review" : "neutral"}>{r.status === "OPEN" ? "Waiting" : r.status === "RESPONDED" ? "Response received" : "Closed"}</StatusBadge> }
         ]}
       />
-    </>
+    </div>
   );
 }
 
 // ---------- Taxpayers ----------
 
-export function TaxpayersPage({ admin }: { admin?: boolean }) {
-  useDocumentTitle("Taxpayers");
+export function TaxpayersPage() {
+  useDocumentTitle("Taxpayers & companies");
   const db = useDb();
   const [q, setQ] = useState("");
   const match = (s: string) => !q || s.toLowerCase().includes(q.toLowerCase());
-  const base = admin ? "/admin/taxpayers" : "/gmca/taxpayers";
+  const base = "/gmca/taxpayers";
   const [tab, setTab] = useState<"INDIVIDUAL" | "COMPANY">("INDIVIDUAL");
   const people = db.taxpayers.filter((t) => match(`${t.fullName} ${t.tin}`));
   const companies = db.companies.filter((c) => match(`${c.name} ${c.uen}`));
   return (
     <>
-      <PageHeader title={admin ? "Taxpayers & companies" : "Taxpayers"} lead="Registered individuals and companies. Identifiers are masked in lists." />
+      <PageHeader title="Taxpayers & companies" lead="Registered individuals and companies. Identifiers are masked in lists. Open a record to see its returns and payments, or to record tax residency." />
       <div className="relative max-w-sm">
         <label htmlFor="tq" className="sr-only">Search</label>
         <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-3 size-4 text-muted" />
@@ -516,6 +541,7 @@ export function TaxpayersPage({ admin }: { admin?: boolean }) {
           caption="Individuals"
           rows={people}
           rowKey={(t) => t.id}
+          onRowClick={(t) => navigate(`${base}/INDIVIDUAL/${t.id}`)}
           minWidth="52rem"
           columns={[
             { key: "n", header: "Name", cell: (t) => <Link className="text-brand-ink underline-offset-4 hover:underline" to={`${base}/INDIVIDUAL/${t.id}`}>{t.fullName}</Link> },
@@ -530,6 +556,7 @@ export function TaxpayersPage({ admin }: { admin?: boolean }) {
           caption="Companies"
           rows={companies}
           rowKey={(c) => c.id}
+          onRowClick={(c) => navigate(`${base}/COMPANY/${c.id}`)}
           minWidth="52rem"
           columns={[
             { key: "n", header: "Name", cell: (c) => <Link className="text-brand-ink underline-offset-4 hover:underline" to={`${base}/COMPANY/${c.id}`}>{c.name}</Link> },
@@ -545,7 +572,36 @@ export function TaxpayersPage({ admin }: { admin?: boolean }) {
   );
 }
 
-export function TaxpayerDetail({ kind, id, adminSlot }: { kind: string; id: string; adminSlot?: React.ReactNode }) {
+/** Taxpayer record for tax officers, with the residency determination for individuals. */
+export function OfficerTaxpayerDetail({ kind, id }: { kind: string; id: string }) {
+  const db = useDb();
+  const run = useRun();
+  const t = kind === "INDIVIDUAL" ? db.taxpayers.find((x) => x.id === id) : undefined;
+  const [status, setStatus] = useState<ResidencyStatus>(t?.residencyStatus ?? "NOT_DETERMINED");
+  const [reason, setReason] = useState("");
+  const slot = t ? (
+    <Section title="Tax residency" description="Recorded by GMCA. It decides whether the configured non-resident treatment applies. Nationality alone must not be used.">
+      <form
+        className="grid max-w-2xl gap-4 border border-line bg-surface p-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (run((d, a) => setResidency(d, a, t.id, status, reason), "Residency recorded") !== undefined) setReason("");
+        }}
+      >
+        <SelectField label="Residency status" value={status} onChange={(e) => setStatus(e.target.value as ResidencyStatus)}>
+          <option value="NOT_DETERMINED">Not determined</option>
+          <option value="RESIDENT">Resident</option>
+          <option value="NON_RESIDENT">Non-resident</option>
+        </SelectField>
+        <TextArea label="Basis for the determination" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} hint="Recorded in the audit log. GMCA's residency rules are still to be confirmed." />
+        <div><Button type="submit">Record residency</Button></div>
+      </form>
+    </Section>
+  ) : null;
+  return <TaxpayerDetail kind={kind} id={id} adminSlot={slot} />;
+}
+
+function TaxpayerDetail({ kind, id, adminSlot }: { kind: string; id: string; adminSlot?: React.ReactNode }) {
   const db = useDb();
   const owner: OwnerRef | null = kind === "INDIVIDUAL" ? { kind: "INDIVIDUAL", id } : kind === "COMPANY" ? { kind: "COMPANY", id } : null;
   const name = owner ? ownerName(db, owner) : "";
@@ -559,7 +615,7 @@ export function TaxpayerDetail({ kind, id, adminSlot }: { kind: string; id: stri
   const payments = db.payments.filter((p) => liabilities.some((l) => l.id === p.liabilityId));
   return (
     <>
-      <PageHeader title={name} lead={t ? `${t.tin} · ${t.category === "CITIZEN" ? "Bhutanese citizen" : `Foreign national (${t.nationality})`}` : `${c!.uen} · ${c!.sector}`} back={{ to: adminSlot ? "/admin/taxpayers" : "/gmca/taxpayers", label: "Taxpayers" }} />
+      <PageHeader title={name} lead={t ? `${t.tin} · ${t.category === "CITIZEN" ? "Bhutanese citizen" : `Foreign national (${t.nationality})`}` : `${c!.uen} · ${c!.sector}`} back={{ to: "/gmca/taxpayers", label: "Taxpayers & companies" }} />
       <div className="panel p-5">
         {t ? (
           <KeyValue rows={[{ label: "Identifier", value: `${t.identifierType.replace("_", " ").toLowerCase()} ${maskId(t.identifierValue)}` }, { label: "Date of birth", value: formatDate(t.dateOfBirth) }, { label: "Email", value: t.email }, { label: "Phone", value: t.phone }, { label: "Residency", value: t.residencyStatus.replace("_", " ").toLowerCase() }, { label: "Registered", value: formatDate(t.registeredAt) }]} />
@@ -573,7 +629,7 @@ export function TaxpayerDetail({ kind, id, adminSlot }: { kind: string; id: stri
       </Section>
       {c ? (
         <Section title="Monthly declarations">
-          <DataTable caption="Declarations" rows={db.monthlyDeclarations.filter((d) => d.companyId === c.id).sort((a, b) => b.period.localeCompare(a.period))} rowKey={(d) => d.id} columns={[{ key: "p", header: "Month", cell: (d) => formatPeriod(d.period) }, { key: "r", header: "Reference", cell: (d) => d.reference ?? "—" }, { key: "n", header: "Employees", align: "right", cell: (d) => d.lines.length }, { key: "t", header: "Total", align: "right", cell: (d) => formatMoney(d.calculation?.balanceMinor ?? 0) }, { key: "s", header: "Filing", cell: (d) => <SubmissionBadge status={d.submissionStatus} /> }]} />
+          <DataTable caption="Declarations" rows={db.monthlyDeclarations.filter((d) => d.companyId === c.id).sort((a, b) => b.period.localeCompare(a.period))} rowKey={(d) => d.id} columns={[{ key: "p", header: "Month", cell: (d) => formatPeriod(d.period) }, { key: "r", header: "Reference", cell: (d) => d.reference ?? "—" }, { key: "n", header: "Employees", align: "right", cell: (d) => d.lines.length }, { key: "t", header: "Total", align: "right", cell: (d) => formatMoney(d.calculation?.balanceMinor ?? 0) }, { key: "s", header: "Filing", cell: (d) => <SubmissionBadge status={d.submissionStatus} /> }, { key: "pay", header: "Payment", cell: (d) => { const l = db.liabilities.find((x) => x.id === d.liabilityId); if (!l) return <span className="text-muted">—</span>; const ev = db.payments.find((p) => p.liabilityId === l.id && p.method === "EVIDENCE"); const doc = ev?.evidenceDocId ? db.documents.find((x) => x.id === ev.evidenceDocId) : undefined; return ev ? <span className="grid gap-0.5"><StatusBadge tone="review">Paid · evidence to verify</StatusBadge>{doc ? <DocLink doc={doc}>{ev.bankTransactionRef}</DocLink> : null}</span> : <PaymentBadge status={liabilityStatus(db, l)} />; } }]} />
         </Section>
       ) : null}
       <Section title="Payments">
@@ -595,7 +651,7 @@ export function GmcaPaymentsPage() {
   const matched = confirmed.filter((p) => p.bankTransactionRef && db.integrationEvents.some((e) => e.provider === "DK_BANK" && e.reference === p.bankTransactionRef));
   return (
     <>
-      <PageHeader title="Payments & outstanding liabilities" lead="Payment status is tracked separately from filing and assessment. All bank activity here is simulated." />
+      <PageHeader title="Payments & outstanding liabilities" lead="Payment status is tracked separately from filing and assessment." />
       <MetricStrip
         items={[
           { label: "Collected", value: formatMoney(confirmed.reduce((s, p) => s + p.amountMinor, 0)) },
@@ -609,9 +665,10 @@ export function GmcaPaymentsPage() {
           caption="Liabilities"
           rows={rows}
           rowKey={(r) => r.l.id}
+          onRowClick={(r) => navigate(`/gmca/payments/${r.l.id}`)}
           minWidth="56rem"
           columns={[
-            { key: "r", header: "Reference", cell: (r) => r.l.reference },
+            { key: "r", header: "Reference", cell: (r) => <Link className="font-medium text-brand-ink underline-offset-4 hover:underline" to={`/gmca/payments/${r.l.id}`}>{r.l.reference}</Link> },
             { key: "w", header: "Taxpayer", cell: (r) => ownerName(db, r.l.owner) },
             { key: "d", header: "For", cell: (r) => r.l.description },
             { key: "a", header: "Amount", align: "right", cell: (r) => formatMoney(r.l.amountMinor) },
@@ -620,11 +677,12 @@ export function GmcaPaymentsPage() {
           ]}
         />
       </Section>
-      <Section title="Demo reconciliation" description="Each confirmed payment is matched to the simulated DK Bank settlement event by transaction reference. The live DK Bank reconciliation process is still to be specified.">
+      <Section title="Reconciliation" description="Each confirmed payment is matched to its DK Bank settlement event by transaction reference.">
         <DataTable
           caption="Reconciliation"
           rows={payments.slice(0, 40)}
           rowKey={(p) => p.id}
+          onRowClick={(p) => navigate(`/gmca/payments/${p.liabilityId}`)}
           minWidth="56rem"
           columns={[
             { key: "d", header: "Date", cell: (p) => formatDateTime(p.initiatedAt) },
@@ -633,6 +691,88 @@ export function GmcaPaymentsPage() {
             { key: "b", header: "Bank reference", cell: (p) => <span className="num text-xs">{p.bankTransactionRef ?? p.intentReference}</span> },
             { key: "s", header: "Status", cell: (p) => p.status.toLowerCase() },
             { key: "m", header: "Match", cell: (p) => (p.status === "SUCCESS" ? (matched.includes(p) ? <StatusBadge tone="approved">Matched</StatusBadge> : <StatusBadge tone="rejected">Unmatched</StatusBadge>) : <span className="text-muted">—</span>) }
+          ]}
+        />
+      </Section>
+    </>
+  );
+}
+
+const SOURCE_LABEL: Record<Liability["source"], string> = {
+  INDIVIDUAL_SELF_ASSESSMENT: "Individual return (tax due on filing)",
+  INDIVIDUAL_ASSESSMENT: "Individual assessment",
+  CORPORATE_ASSESSMENT: "Corporate assessment",
+  MONTHLY_DECLARATION: "Monthly TDS & Health declaration"
+};
+
+/** One liability: what it is for, who owes it, every payment attempt and how each was reconciled. */
+export function LiabilityDetail({ id }: { id: string }) {
+  const db = useDb();
+  const l = db.liabilities.find((x) => x.id === id);
+  useDocumentTitle(l ? `Liability ${l.reference}` : "Liability");
+  if (!l) return <Forbidden />;
+  const status = liabilityStatus(db, l);
+  const payments = db.payments.filter((p) => p.liabilityId === l.id).sort((a, b) => b.initiatedAt.localeCompare(a.initiatedAt));
+  const isMatched = (p: Payment) => !!p.bankTransactionRef && db.integrationEvents.some((e) => e.provider === "DK_BANK" && e.reference === p.bankTransactionRef);
+  const caseId = l.source === "INDIVIDUAL_ASSESSMENT" || l.source === "CORPORATE_ASSESSMENT" ? l.sourceId : l.source === "INDIVIDUAL_SELF_ASSESSMENT" ? db.assessments.find((a) => a.returnId === l.sourceId)?.id : undefined;
+  const decl = l.source === "MONTHLY_DECLARATION" ? db.monthlyDeclarations.find((d) => d.id === l.sourceId) : undefined;
+  const ownerPath = `/gmca/taxpayers/${l.owner.kind}/${l.owner.id}`;
+  const evidence = payments.filter((p) => p.method === "EVIDENCE");
+  return (
+    <>
+      <PageHeader title={l.reference} lead={`${l.description} · ${ownerName(db, l.owner)}`} back={{ to: "/gmca/payments", label: "Payments & liabilities" }} />
+      <div className="flex flex-wrap items-center gap-2">
+        <PaymentBadge status={status} />
+        {evidence.length ? <StatusBadge tone="review">Paid in DK Bank · evidence to verify</StatusBadge> : null}
+      </div>
+      <MetricStrip
+        items={[
+          { label: "Amount due", value: formatMoney(l.amountMinor, l.currency) },
+          { label: "Paid", value: formatMoney(l.paidMinor, l.currency) },
+          { label: "Outstanding", value: formatMoney(outstanding(l), l.currency) },
+          { label: "Payment attempts", value: payments.length, hint: `${payments.filter((p) => p.status === "SUCCESS").length} confirmed` }
+        ]}
+      />
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Section title="Liability">
+          <div className="panel p-5">
+            <KeyValue
+              rows={[
+                { label: "Taxpayer", value: <Link className="text-brand-ink underline-offset-4 hover:underline" to={ownerPath}>{ownerName(db, l.owner)}</Link> },
+                { label: "Raised from", value: SOURCE_LABEL[l.source] },
+                { label: "For", value: l.description },
+                { label: "Raised on", value: formatDate(l.createdAt) },
+                ...(decl ? [{ label: "Declaration", value: `${decl.reference ?? "—"} · ${formatPeriod(decl.period)} · ${decl.lines.length} employees` }] : [])
+              ]}
+            />
+          </div>
+        </Section>
+        <Section title="Next step">
+          <div className="grid content-start gap-3 border border-line bg-surface p-5 text-sm">
+            {status === "PAID" ? <p>Paid in full. Check the bank reference on each payment below against the DK Bank settlement report.</p> : status === "PENDING" ? <p>DK Bank hasn't confirmed a payment yet. It updates here when the bank answers.</p> : <p>{formatMoney(outstanding(l), l.currency)} is still owed. The taxpayer can pay it from their Payments page.</p>}
+            {evidence.length ? <p>The taxpayer paid in DK Bank before submitting and uploaded the receipt. Check the receipt below against the bank statement.</p> : null}
+            <div className="flex flex-wrap gap-3">
+              {caseId ? <Button size="sm" variant="secondary" onClick={() => navigate(`/gmca/cases/${caseId}`)}>Open the return</Button> : null}
+              <Button size="sm" variant="secondary" onClick={() => navigate(ownerPath)}>Open taxpayer record</Button>
+            </div>
+          </div>
+        </Section>
+      </div>
+      <Section title="Payments" description="Every attempt, including declined and pending ones.">
+        <DataTable
+          caption="Payment attempts"
+          rows={payments}
+          rowKey={(p) => p.id}
+          minWidth="56rem"
+          empty="No payment has been made yet."
+          columns={[
+            { key: "d", header: "Date", cell: (p) => formatDateTime(p.initiatedAt) },
+            { key: "a", header: "Amount", align: "right", cell: (p) => formatMoney(p.amountMinor, p.currency) },
+            { key: "m", header: "Method", cell: (p) => (p.method === "EVIDENCE" ? "Paid in DK Bank, receipt uploaded" : "DK Bank through the portal") },
+            { key: "b", header: "Bank reference", cell: (p) => <span className="num text-xs">{p.bankTransactionRef ?? p.intentReference}</span> },
+            { key: "s", header: "Status", cell: (p) => <StatusBadge tone={p.status === "SUCCESS" ? "approved" : p.status === "FAILED" ? "rejected" : "action"}>{p.status === "SUCCESS" ? "Confirmed" : p.status === "FAILED" ? `Declined${p.failureReason ? `: ${p.failureReason}` : ""}` : "Pending"}</StatusBadge> },
+            { key: "r", header: "Reconciliation", cell: (p) => (p.status !== "SUCCESS" ? <span className="text-muted">—</span> : p.method === "EVIDENCE" ? <StatusBadge tone="review">To verify</StatusBadge> : isMatched(p) ? <StatusBadge tone="approved">Matched</StatusBadge> : <StatusBadge tone="rejected">Unmatched</StatusBadge>) },
+            { key: "doc", header: "Document", cell: (p) => { const doc = db.documents.find((x) => x.id === (p.evidenceDocId ?? p.receiptDocId)); return doc ? <DocLink doc={doc}>{p.method === "EVIDENCE" ? "Payment receipt" : "Receipt"}</DocLink> : <span className="text-muted">—</span>; } }
           ]}
         />
       </Section>
@@ -690,7 +830,7 @@ export function ReportsPage() {
       rows: [["Return", "Taxpayer", "Year", "Submitted", "Assessment"], ...db.assessments.filter((a) => a.year === y).map((a) => { const r = returnFor(db, a); return [caseLabel(db, a).reference, caseLabel(db, a).name, a.year, r?.submittedAt?.slice(0, 10) ?? "", assessmentLabel(a.status)]; })]
     },
     { key: "nonfilers", title: "Non-filers / outstanding returns", rows: [["Taxpayer", "TIN", "Category"], ...nonFilers.map((t) => [t.fullName, t.tin, t.category])] },
-    { key: "workload", title: "Assessment workload", rows: [["Assessor", "Open", "Completed"], ...assessors.map((u) => [u.name, db.assessments.filter((a) => a.assignedTo === u.id && a.status !== "COMPLETED").length, db.assessments.filter((a) => a.assignedTo === u.id && a.status === "COMPLETED").length]), ["Not assigned", db.assessments.filter((a) => !a.assignedTo).length, 0]] },
+    { key: "workload", title: "Assessment workload", rows: [["Tax officer", "Open", "Completed"], ...assessors.map((u) => [u.name, db.assessments.filter((a) => a.assignedTo === u.id && a.status !== "COMPLETED").length, db.assessments.filter((a) => a.assignedTo === u.id && a.status === "COMPLETED").length]), ["Not assigned", db.assessments.filter((a) => !a.assignedTo).length, 0]] },
     { key: "collected", title: "Payments collected", rows: [["Date", "Taxpayer", "Liability", "Amount", "Bank reference"], ...db.payments.filter((p) => p.status === "SUCCESS" && p.settledAt?.startsWith(year)).map((p) => { const l = db.liabilities.find((x) => x.id === p.liabilityId)!; return [p.settledAt!.slice(0, 10), ownerName(db, l.owner), l.reference, (p.amountMinor / 100).toFixed(2), p.bankTransactionRef ?? ""]; })] },
     { key: "outstanding", title: "Outstanding liabilities", rows: [["Liability", "Taxpayer", "For", "Outstanding", "Status"], ...db.liabilities.filter((l) => outstanding(l) > 0).map((l) => [l.reference, ownerName(db, l.owner), l.description, (outstanding(l) / 100).toFixed(2), paymentLabel(liabilityStatus(db, l))])] },
     { key: "taxpayers", title: "Taxpayer and company list", rows: [["Name", "Identifier", "Type"], ...db.taxpayers.map((t) => [t.fullName, t.tin, t.category === "CITIZEN" ? "Individual (citizen)" : "Individual (foreign)"]), ...db.companies.map((c) => [c.name, c.uen, c.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship" : "Company"])] }

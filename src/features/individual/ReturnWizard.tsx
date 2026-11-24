@@ -2,30 +2,33 @@ import { AlertTriangle, ArrowLeft, ArrowRight, CalendarCheck2, Landmark, Pencil 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Link, navigate, useActor, useDb, useDocumentTitle, useRun } from "../../app/core";
-import type { Db, IncomeSource, IndividualTaxReturn, ReliefClaim, CalculationSnapshot, TaxRuleSet } from "../../domain/types";
+import type { BalanceSheetLine, Db, IncomeSource, IndividualTaxReturn, ReliefClaim, CalculationSnapshot, TaxRuleSet } from "../../domain/types";
 import { formatDate, formatPeriod, maskId } from "../../lib/format";
 import { formatAmount, formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
 import { bandBreakdown, bracketFor, ruleSetForYear } from "../../services/calc";
 import { classForTaxpayer } from "../../services/classification";
-import { ensureDraftReturn, payAndSubmit, previewCalculation, saveDraft, selfAssessmentFor, submitReturn, validateReturn } from "../../services/individual";
+import { totals } from "../../services/balanceSheet";
+import { ensureDraftReturn, payAndSubmit, previewCalculation, returnScope, saveDraft, selfAssessmentFor, submitReturn, syncDkBankStatement, validateReturn } from "../../services/individual";
 import { Button } from "../../shared/gmc/Button";
 import { Checkbox, TextArea, TextField } from "../../shared/gmc/Form";
 import { Alert, DataList, Money, PageIntro, StatusBadge } from "../../shared/gmc/Layout";
 import { SalaryBreakdown } from "../../shared/gmc/SalaryBreakdown";
 import { Stepper } from "../../shared/gmc/Stepper";
 import { Forbidden } from "../shared/TaxpayerShared";
-import { DemoTag, RecordUpload } from "../shared/ui";
+import { BalanceSheetEditor } from "../shared/BalanceSheet";
+import { RecordUpload } from "../shared/ui";
 import { AdditionalIncome } from "./AdditionalIncome";
 
 /** Version 1's filing flow and presentation, on version 2's data model and services. */
-type StepKey = "about" | "income" | "reliefs" | "tax" | "review";
+type StepKey = "about" | "income" | "reliefs" | "assets" | "tax" | "review";
 
-function stepsFor(year: number): { key: StepKey; label: string; title: string; lead: string }[] {
+function stepsFor(year: number, scope: { additionalIncome: boolean; balanceSheet: boolean }): { key: StepKey; label: string; title: string; lead: string }[] {
   return [
     { key: "about", label: "About you", title: "About you", lead: "Your identity comes from a verified record. Check it before you continue." },
-    { key: "income", label: "Income", title: "Your income", lead: `Your employer's figures are filled in. Add anything else you earned in ${year}.` },
+    { key: "income", label: "Income", title: "Your income", lead: scope.additionalIncome ? `Your employer's figures are filled in. Add anything else you earned in ${year}.` : `Your employer's figures are filled in. As a foreign national, you declare your GMC employment income only.` },
     { key: "reliefs", label: "Reliefs", title: "Reliefs", lead: "Reliefs reduce the income you're taxed on. Claim the ones you're due and attach evidence." },
+    ...(scope.balanceSheet ? [{ key: "assets" as const, label: "Assets", title: "Assets and liabilities", lead: `What you owned and owed on 31 December ${year}. Attach a document to each investment.` }] : []),
     { key: "tax", label: "Your tax", title: "Your tax", lead: "This is exactly how your tax is worked out, band by band." },
     { key: "review", label: "Review", title: "Check, pay and submit", lead: "Check each section and declare. If you have tax to pay, you pay it first; your return then goes to GMCA." }
   ];
@@ -68,11 +71,13 @@ function resultLabel(balance: number) {
 function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; stepKey: StepKey }) {
   useDocumentTitle(`YA ${ret.year + 1} return`);
   const run = useRun();
-  const steps = stepsFor(ret.year);
+  const scope = returnScope(db, ret);
+  const steps = stepsFor(ret.year, scope);
   const step = steps.find((s) => s.key === stepKey) ?? steps[0]!;
   const index = steps.indexOf(step);
   const [sources, setSources] = useState<IncomeSource[]>(ret.incomeSources);
   const [reliefs, setReliefs] = useState<ReliefClaim[]>(ret.reliefs);
+  const [holdings, setHoldings] = useState<BalanceSheetLine[]>(ret.balanceSheet ?? []);
   const [declared, setDeclared] = useState(ret.declarationAccepted);
   const [showIssues, setShowIssues] = useState(false);
   const owner = { kind: "INDIVIDUAL" as const, id: ret.taxpayerId };
@@ -80,13 +85,13 @@ function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; 
   const prepay = selfAssessmentFor(db, ret.id);
   const pending = prepay ? db.payments.find((p) => p.liabilityId === prepay.id && p.status === "PENDING") : undefined;
   const preview = useMemo(() => previewCalculation(db, ret, sources, reliefs), [db, ret, sources, reliefs]);
-  const issues = useMemo(() => validateReturn(db, { ...ret, incomeSources: preview.sources, reliefs, declarationAccepted: declared }), [db, ret, preview.sources, reliefs, declared]);
+  const issues = useMemo(() => validateReturn(db, { ...ret, incomeSources: preview.sources, reliefs, balanceSheet: holdings, declarationAccepted: declared }), [db, ret, preview.sources, reliefs, holdings, declared]);
   const stepIssues = issues.filter((i) => i.step === step.key);
   const strip = (xs: IncomeSource[]) => JSON.stringify(xs.map(({ conversion: _c, ...rest }) => rest));
-  const dirty = strip(sources) !== strip(ret.incomeSources) || JSON.stringify(reliefs) !== JSON.stringify(ret.reliefs) || declared !== ret.declarationAccepted;
+  const dirty = strip(sources) !== strip(ret.incomeSources) || JSON.stringify(reliefs) !== JSON.stringify(ret.reliefs) || JSON.stringify(holdings) !== JSON.stringify(ret.balanceSheet ?? []) || declared !== ret.declarationAccepted;
+  const draft = (patch?: { incomeSources?: IncomeSource[]; reliefs?: ReliefClaim[]; balanceSheet?: BalanceSheetLine[] }) => ({ incomeSources: patch?.incomeSources ?? sources, reliefs: patch?.reliefs ?? reliefs, balanceSheet: patch?.balanceSheet ?? holdings, declarationAccepted: declared });
 
-  const save = (patch?: { incomeSources?: IncomeSource[]; reliefs?: ReliefClaim[] }) =>
-    pending ? undefined : run((d, a) => saveDraft(d, a, ret.id, { incomeSources: patch?.incomeSources ?? sources, reliefs: patch?.reliefs ?? reliefs, declarationAccepted: declared }));
+  const save = (patch?: { incomeSources?: IncomeSource[]; reliefs?: ReliefClaim[]; balanceSheet?: BalanceSheetLine[] }) => (pending ? undefined : run((d, a) => saveDraft(d, a, ret.id, draft(patch))));
 
   // Autosave shortly after typing stops, as in version 1.
   const timer = useRef<number>();
@@ -96,7 +101,7 @@ function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; 
     timer.current = window.setTimeout(() => save(), 800);
     return () => window.clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sources, reliefs, declared]);
+  }, [sources, reliefs, holdings, declared]);
 
   useEffect(() => setShowIssues(false), [stepKey]);
 
@@ -112,7 +117,7 @@ function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; 
     }
     go(steps[index + 1]!.key);
   };
-  const withPanel = step.key === "about" || step.key === "income" || step.key === "reliefs";
+  const withPanel = step.key === "about" || step.key === "income" || step.key === "reliefs" || step.key === "assets";
   const rules = preview.rules;
 
   return (
@@ -144,17 +149,29 @@ function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; 
           {step.key === "income" ? (
             <div className="grid gap-10">
               <EmploymentSection db={db} ret={ret} rules={rules} onRefresh={() => run((d, a) => saveDraft(d, a, ret.id, { refreshEmployment: true }), "Employer figures refreshed")} />
-              <AdditionalIncome
-                db={db}
-                ret={ret}
-                sources={sources}
-                setSources={setSources}
-                onDocsChanged={(nextSources) => {
-                  setSources(nextSources);
-                  save({ incomeSources: nextSources });
-                }}
-                owner={owner}
-              />
+              {scope.additionalIncome ? (
+                <AdditionalIncome
+                  db={db}
+                  ret={ret}
+                  sources={sources}
+                  setSources={setSources}
+                  onDocsChanged={(nextSources) => {
+                    setSources(nextSources);
+                    save({ incomeSources: nextSources });
+                  }}
+                  onSync={() => {
+                    if (pending) return undefined;
+                    const r = run((d, a) => {
+                      saveDraft(d, a, ret.id, draft());
+                      return syncDkBankStatement(d, a, ret.id);
+                    }, "DK Bank statement synced");
+                    if (!r) return undefined;
+                    setSources(r.ret.incomeSources);
+                    return r.ret.incomeSources;
+                  }}
+                  owner={owner}
+                />
+              ) : null}
             </div>
           ) : null}
           {step.key === "reliefs" ? (
@@ -172,6 +189,22 @@ function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; 
               owner={owner}
             />
           ) : null}
+          {step.key === "assets" ? (
+            <BalanceSheetEditor
+              db={db}
+              rules={rules}
+              regime="INDIVIDUAL"
+              year={ret.year}
+              owner={owner}
+              related={{ kind: "INDIVIDUAL_RETURN", id: ret.id }}
+              lines={holdings}
+              setLines={setHoldings}
+              onDocsChanged={(next) => {
+                setHoldings(next);
+                save({ balanceSheet: next });
+              }}
+            />
+          ) : null}
           {step.key === "tax" ? <TaxStep db={db} ret={ret} rules={rules} snapshot={preview.snapshot} /> : null}
           {step.key === "review" ? (
             <ReviewStep
@@ -181,6 +214,7 @@ function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; 
               snapshot={preview.snapshot}
               sources={preview.sources}
               reliefs={reliefs}
+              holdings={scope.balanceSheet ? holdings : undefined}
               issues={issues}
               steps={steps}
               declared={declared}
@@ -191,14 +225,14 @@ function ReturnWizard({ db, ret, stepKey }: { db: Db; ret: IndividualTaxReturn; 
                 const balance = preview.snapshot.balanceMinor;
                 if (db.config.payBeforeSubmit && balance > 0) {
                   const p = run((d, a) => {
-                    saveDraft(d, a, ret.id, { incomeSources: sources, reliefs, declarationAccepted: declared });
+                    saveDraft(d, a, ret.id, draft());
                     return payAndSubmit(d, a, ret.id);
                   });
                   if (p) navigate(`/bank/${p.id}`);
                   return;
                 }
                 const done = run((d, a) => {
-                  saveDraft(d, a, ret.id, { incomeSources: sources, reliefs, declarationAccepted: declared });
+                  saveDraft(d, a, ret.id, draft());
                   return submitReturn(d, a, ret.id);
                 }, "Return submitted");
                 if (done) navigate(`/returns/${ret.id}?submitted=1`);
@@ -284,7 +318,6 @@ function AboutStep({ db, ret }: { db: Db; ret: IndividualTaxReturn }) {
           </h2>
           <span className="flex items-center gap-2">
             <StatusBadge tone="neutral">From {source}</StatusBadge>
-            <DemoTag>Simulated</DemoTag>
           </span>
         </div>
         <DataList
@@ -435,7 +468,7 @@ function ReliefsStep({ db, ret, rules, snapshot, reliefs, setReliefs, onDocsChan
                   <div className="grid gap-5 sm:grid-cols-2">
                     <TextField
                       label={`Amount you're claiming (${db.config.reportingCurrency})`}
-                      prefix={db.config.reportingCurrency === "USD" ? "$" : undefined}
+                      prefix={db.config.reportingCurrency === "BTN" ? "Nu" : db.config.reportingCurrency === "USD" ? "$" : undefined}
                       inputMode="decimal"
                       required
                       value={amounts[claim.id] ?? ""}
@@ -454,7 +487,7 @@ function ReliefsStep({ db, ret, rules, snapshot, reliefs, setReliefs, onDocsChan
           );
         })}
       <p className="text-xs text-muted">
-        Total reliefs <Money cents={snapshot.figures!.reliefsMinor} />. Uploading evidence doesn't approve a relief: GMCA may review it, so keep the originals. Relief categories and limits are demo configuration.
+        Total reliefs <Money cents={snapshot.figures!.reliefsMinor} />. Uploading evidence doesn't approve a relief: GMCA may review it, so keep the originals.
       </p>
     </div>
   );
@@ -492,7 +525,7 @@ function TdsWorking({ db, ret, rules }: { db: Db; ret: IndividualTaxReturn; rule
           <table className="w-full text-[13px] sm:text-sm">
             <caption className="sr-only">TDS by monthly pay bracket</caption>
             <thead>
-              <tr className="bg-primary text-white">
+              <tr className="bg-thead text-thead-fg">
                 <th scope="col" className="h-10 px-2 text-left font-medium sm:px-3">Monthly pay</th>
                 <th scope="col" className="h-10 px-2 text-right font-medium sm:px-3">Rate</th>
                 <th scope="col" className="h-10 px-2 text-right font-medium sm:px-3">
@@ -580,7 +613,7 @@ function TaxStep({ db, ret, rules, snapshot }: { db: Db; ret: IndividualTaxRetur
             <table className="w-full text-[13px] sm:text-sm">
               <caption className="sr-only">Tax by band, GMC Income Tax Act 2025</caption>
               <thead>
-                <tr className="bg-primary text-white">
+                <tr className="bg-thead text-thead-fg">
                   <th scope="col" className="h-10 px-2 text-left font-medium sm:px-3">Band</th>
                   <th scope="col" className="h-10 px-2 text-right font-medium sm:px-3">Rate</th>
                   <th scope="col" className="h-10 px-2 text-right font-medium sm:px-3">
@@ -661,6 +694,7 @@ function ReviewStep({
   snapshot,
   sources,
   reliefs,
+  holdings,
   issues,
   steps,
   declared,
@@ -675,6 +709,8 @@ function ReviewStep({
   snapshot: CalculationSnapshot;
   sources: IncomeSource[];
   reliefs: ReliefClaim[];
+  /** Citizens' returns only. */
+  holdings?: BalanceSheetLine[];
   issues: { step: string; message: string }[];
   steps: { key: StepKey; label: string }[];
   declared: boolean;
@@ -725,6 +761,25 @@ function ReviewStep({
           })
         : [{ label: "Reliefs", value: "None" }]
     },
+    ...(holdings
+      ? [
+          {
+            key: "assets" as const,
+            title: "Assets and liabilities",
+            rows: holdings.length
+              ? (() => {
+                  const t = totals(rules, holdings);
+                  return [
+                    { label: "Assets", value: <Money cents={t.assets} /> },
+                    { label: "Investments", value: <Money cents={t.investments} />, hint: `${holdings.filter((h) => rules.taxItems.find((i) => i.key === h.itemKey)?.investment).reduce((n, h) => n + h.docIds.length, 0)} documents attached` },
+                    { label: "Liabilities", value: <Money cents={-t.liabilities} /> },
+                    { label: "Net worth", value: <Money cents={t.net} className="font-medium" /> }
+                  ];
+                })()
+              : [{ label: "Assets and liabilities", value: "None declared" }]
+          }
+        ]
+      : []),
     {
       key: "tax",
       title: "Your tax",
@@ -768,7 +823,7 @@ function ReviewStep({
       ))}
       {payFirst ? (
         <Alert tone="action" title={`You have ${formatMoney(balance)} to pay`}>
-          Pay through DK Bank (simulated) and your return is submitted to GMCA as soon as the payment is confirmed. If GMCA's assessment changes your tax, you'll get a notice asking only for the difference.
+          Pay through DK Bank and your return is submitted to GMCA as soon as the payment is confirmed. If GMCA's assessment changes your tax, you'll get a notice asking only for the difference.
         </Alert>
       ) : balance < 0 ? (
         <Alert tone="review" title={`Estimated credit of ${formatMoney(-balance)}`}>

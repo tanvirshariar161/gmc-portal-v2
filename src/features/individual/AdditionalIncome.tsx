@@ -1,5 +1,6 @@
-import { Plus, Trash2 } from "lucide-react";
+import { ArrowRight, RefreshCw, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import type { Db, IncomeSource, IndividualTaxReturn } from "../../domain/types";
 import { formatDate } from "../../lib/format";
 import { minorToInput, parseAmountInput } from "../../lib/money";
@@ -8,7 +9,8 @@ import { ruleSetForYear } from "../../services/calc";
 import { defaultSourceClassification, individualIncomeItems } from "../../services/classification";
 import { nowIso } from "../../services/clock";
 import { convert, conversionDateFor } from "../../services/currency";
-import { Button } from "../../shared/gmc/Button";
+import { DkBankLogo } from "../../shared/gmc/DkBankLogo";
+import { StatusBadge } from "../../shared/gmc/Layout";
 import { RadioGroup, SelectField, TextField } from "../../shared/gmc/Form";
 import { ConversionView, CurrencySelect, RecordUpload, Section } from "../shared/ui";
 
@@ -18,28 +20,51 @@ function blankSource(ret: IndividualTaxReturn, db: Db): IncomeSource {
   return { id: `${ret.id}-src-${Date.now().toString(36)}`, category: cat.key, description: "", payer: "", amountMinor: 0, currency: db.config.reportingCurrency, periodFrom: `${ret.year}-01-01`, periodTo: `${ret.year}-12-31`, classification: defaultSourceClassification(cat), supportingDocIds: [] };
 }
 
-export function AdditionalIncome({ db, ret, sources, setSources, onDocsChanged, owner }: { db: Db; ret: IndividualTaxReturn; sources: IncomeSource[]; setSources: (s: IncomeSource[]) => void; onDocsChanged: (s: IncomeSource[]) => void; owner: { kind: "INDIVIDUAL"; id: string } }) {
+/** One of the two ways to add income: a large, clearly labelled choice. */
+function AddOption({ icon, title, body, onClick }: { icon: ReactNode; title: string; body: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="group grid content-start gap-3 border border-line bg-surface p-5 text-left transition-colors hover:border-primary hover:bg-brand-50 focus-visible:shadow-[0_0_0_3px_var(--ring)] focus-visible:outline-none">
+      <span className="flex min-h-9 items-center">{icon}</span>
+      <span className="grid gap-1">
+        <span className="flex items-center gap-2 font-medium text-fg">
+          {title} <ArrowRight aria-hidden="true" className="size-4 text-brand-ink transition-transform group-hover:translate-x-0.5" />
+        </span>
+        <span className="text-sm text-muted">{body}</span>
+      </span>
+    </button>
+  );
+}
+
+export function AdditionalIncome({ db, ret, sources, setSources, onDocsChanged, onSync, owner }: { db: Db; ret: IndividualTaxReturn; sources: IncomeSource[]; setSources: (s: IncomeSource[]) => void; onDocsChanged: (s: IncomeSource[]) => void; onSync: () => IncomeSource[] | undefined; owner: { kind: "INDIVIDUAL"; id: string } }) {
   const rules = ruleSetForYear(db.ruleSets, ret.year);
   const [amounts, setAmounts] = useState<Record<string, string>>(() => Object.fromEntries(sources.map((s) => [s.id, minorToInput(s.amountMinor || null)])));
   const update = (id: string, patch: Partial<IncomeSource>) => setSources(sources.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   return (
     <Section
       title="Additional income sources"
-      description="Income other than your GMC employment: rent, business, dividends, interest, foreign work and similar. Each source has its own currency and needs its own bank statement."
-      actions={
-        <Button
-          variant="secondary"
-          size="sm"
+      description="Income other than your GMC employment: rent, business, dividends, interest, foreign work and similar. Each source has its own currency and is backed by a bank statement."
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <AddOption
+          icon={<DkBankLogo />}
+          title={sources.some((s) => s.statementSource === "DK_BANK") ? "Sync statement from DK Bank again" : "Sync statement from DK Bank"}
+          body={`Bring in the income credits on your DK Bank statement for ${ret.year}. The statement is attached for you.`}
           onClick={() => {
-            const s = blankSource(ret, db);
+            const next = onSync();
+            if (next) setAmounts(Object.fromEntries(next.map((s) => [s.id, amounts[s.id] ?? minorToInput(s.amountMinor || null)])));
+          }}
+        />
+        <AddOption
+          icon={<span className="grid size-9 place-items-center bg-brand-50 text-brand-ink"><Upload aria-hidden="true" className="size-5" /></span>}
+          title="Bank statement upload"
+          body="Enter an income source yourself and upload a statement from any bank."
+          onClick={() => {
+            const s = { ...blankSource(ret, db), statementSource: "UPLOAD" as const };
             setAmounts({ ...amounts, [s.id]: "" });
             setSources([...sources, s]);
           }}
-        >
-          <Plus /> Add income source
-        </Button>
-      }
-    >
+        />
+      </div>
       {sources.length === 0 ? <p className="border border-dashed border-line px-4 py-6 text-center text-sm text-muted">No additional income added. If you only earned employment income in GMC, continue to the next step.</p> : null}
       {sources.map((s, i) => {
         const preview = convert(db.config, s.amountMinor, s.currency, conversionDateFor(db.config, s.periodTo || `${ret.year}-12-31`, nowIso().slice(0, 10)));
@@ -48,9 +73,16 @@ export function AdditionalIncome({ db, ret, sources, setSources, onDocsChanged, 
           <fieldset key={s.id} className="grid gap-5 border border-line bg-surface p-5">
             <legend className="sr-only">Income source {i + 1}</legend>
             <div className="flex items-center justify-between gap-3">
-              <h3 className="font-medium">
-                Income source {i + 1}
-                {s.description ? <span className="font-normal text-muted"> · {s.description}</span> : null}
+              <h3 className="flex flex-wrap items-center gap-2 font-medium">
+                <span>
+                  Income source {i + 1}
+                  {s.description ? <span className="font-normal text-muted"> · {s.description}</span> : null}
+                </span>
+                {s.statementSource === "DK_BANK" ? (
+                  <StatusBadge tone="neutral">
+                    <RefreshCw aria-hidden="true" className="size-3" /> From DK Bank
+                  </StatusBadge>
+                ) : null}
               </h3>
               <button
                 type="button"

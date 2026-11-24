@@ -40,8 +40,9 @@ export function setStaffRole(d: Db, actor: Actor, userId: string, role: Extract<
 
 // ---------- Taxpayer records ----------
 
+/** Tax officers record residency from the taxpayer record. */
 export function setResidency(d: Db, actor: Actor, taxpayerId: string, status: ResidencyStatus, reason: string) {
-  require(actor, "admin.config");
+  require(actor, "taxpayers.manage");
   const t = d.taxpayers.find((x) => x.id === taxpayerId);
   if (!t) throw new ServiceError("Taxpayer not found.", "NOT_FOUND");
   if (!reason.trim()) throw new ServiceError("Record the basis for this residency determination.");
@@ -58,18 +59,19 @@ export function publishRuleSet(d: Db, actor: Actor, baseId: string, changes: Par
   const base = d.ruleSets.find((r) => r.id === baseId);
   if (!base) throw new ServiceError("Rule set not found.", "NOT_FOUND");
   if (!reason.trim()) throw new ServiceError("Record why the rules are changing.");
-  const next: TaxRuleSet = { ...structuredClone(base), ...structuredClone(changes), id: nextId(d, "RULES"), version: bumpVersion(d, base), status: "ACTIVE", createdBy: actor.id, createdAt: nowIso() };
+  const merged = { ...structuredClone(base), ...structuredClone(changes) };
+  if (!Number.isInteger(merged.effectiveFromYear) || merged.effectiveFromYear < 2025 || merged.effectiveFromYear > 2100) throw new ServiceError("Choose a financial year from 2025 to 2100.");
+  const next: TaxRuleSet = { ...merged, id: nextId(d, "RULES"), version: nextVersion(d, merged.effectiveFromYear), status: "ACTIVE", createdBy: actor.id, createdAt: nowIso() };
   validateRuleSet(next);
   for (const r of d.ruleSets) if (r.status === "ACTIVE" && r.effectiveFromYear === next.effectiveFromYear) r.status = "RETIRED";
   d.ruleSets.unshift(next);
-  audit(d, actor, "RULESET_PUBLISHED", "TaxRuleSet", next.id, `Rule set ${next.version} published (from ${base.version}): ${reason.trim()}`);
+  audit(d, actor, "RULESET_PUBLISHED", "TaxRuleSet", next.id, `Rule set ${next.version} for ${next.effectiveFromYear} published (from ${base.version}): ${reason.trim()}`);
   return next;
 }
 
-function bumpVersion(d: Db, base: TaxRuleSet) {
-  const year = base.effectiveFromYear;
+function nextVersion(d: Db, year: number) {
   const n = d.ruleSets.filter((r) => r.effectiveFromYear === year).length + 1;
-  return `DEMO-${year}.${n}`;
+  return `FY${year}.${n}`;
 }
 
 function checkBands(name: string, bands: TaxRuleSet["individualBands"]) {
@@ -127,7 +129,9 @@ function validateItems(r: TaxRuleSet) {
     keys.add(i.key);
     const meta = TREATMENTS.find((t) => t.value === i.treatment && t.kind === i.kind);
     if (!meta) throw new ServiceError(`${name}: choose a treatment that fits ${i.kind.toLowerCase()} items.`);
-    if (i.kind !== "INCOME" && i.appliesTo !== "CORPORATE") throw new ServiceError(`${name}: expenses, assets and liabilities apply to business returns only.`);
+    if (i.kind === "EXPENSE" && i.appliesTo !== "CORPORATE") throw new ServiceError(`${name}: expenses apply to business returns only.`);
+    if (i.investment && i.kind !== "ASSET") throw new ServiceError(`${name}: only assets can be investments.`);
+    if (i.appliesTo !== "CORPORATE" && i.kind === "ASSET" && i.treatment !== "NOT_DEPRECIABLE") throw new ServiceError(`${name}: assets individuals declare take no allowance. Set the treatment to No allowance, or apply it to businesses only.`);
     if (!meta.rate && i.ratePct !== null) throw new ServiceError(`${name}: ${meta.label.toLowerCase()} takes no rate.`);
     if (meta.rate && (meta.rate.required || i.ratePct !== null) && !isRate(i.ratePct)) throw new ServiceError(`${name}: enter the ${meta.rate.label.replace(" %", "").toLowerCase()} as a percentage between 0 and 100.`);
     if (i.treatment === "CAPITAL_ALLOWANCE" ? !i.allowanceMethod : i.allowanceMethod !== null) throw new ServiceError(`${name}: ${i.treatment === "CAPITAL_ALLOWANCE" ? "choose straight line or reducing balance" : "an allowance method applies to capital allowances only"}.`);
@@ -189,10 +193,10 @@ export function addExchangeRate(d: Db, actor: Actor, input: Omit<ExchangeRate, "
   if (!(input.rate > 0)) throw new ServiceError("Enter a rate greater than zero.");
   if (!input.effectiveDate) throw new ServiceError("Enter the date the rate takes effect.");
   if (d.config.exchangeRates.some((r) => r.currency === input.currency && r.effectiveDate === input.effectiveDate)) throw new ServiceError(`A ${input.currency} rate already exists for ${input.effectiveDate}.`, "CONFLICT");
-  const rate: ExchangeRate = { id: nextId(d, "FX"), ...input, source: input.source.trim() || "Demo rate", isDemo: true };
+  const rate: ExchangeRate = { id: nextId(d, "FX"), ...input, source: input.source.trim() || "Illustrative rate", isDemo: true };
   // Rates are stored as reporting-currency units per one unit of the currency.
   d.config.exchangeRates.push(rate);
-  audit(d, actor, "EXCHANGE_RATE_ADDED", "ExchangeRate", rate.id, `${input.currency} = ${input.rate} ${d.config.reportingCurrency} from ${input.effectiveDate} (demo)`);
+  audit(d, actor, "EXCHANGE_RATE_ADDED", "ExchangeRate", rate.id, `${input.currency} = ${input.rate} ${d.config.reportingCurrency} from ${input.effectiveDate}`);
 }
 
 export function setPlatformSetting(d: Db, actor: Actor, patch: Partial<Pick<PlatformConfig, "reportingCurrency" | "conversionDateRule" | "informationRequestDays" | "currentFilingYear" | "currentPayrollPeriod" | "filingDeadlineMonthDay" | "payBeforeSubmit">>) {
@@ -203,7 +207,7 @@ export function setPlatformSetting(d: Db, actor: Actor, patch: Partial<Pick<Plat
   if (patch.currentPayrollPeriod !== undefined && !/^\d{4}-\d{2}$/.test(patch.currentPayrollPeriod)) throw new ServiceError("Choose a payroll month.");
   if (patch.reportingCurrency && patch.reportingCurrency !== d.config.reportingCurrency && d.config.exchangeRates.length) {
     // Rates are quoted against the reporting currency; changing it invalidates them in this demo.
-    throw new ServiceError("Changing the reporting currency would invalidate every configured rate. Reset the demo or confirm GMCA's reporting currency first.", "CONFLICT");
+    throw new ServiceError("Changing the reporting currency would invalidate every configured rate. Reset the data or confirm GMCA's reporting currency first.", "CONFLICT");
   }
   Object.assign(d.config, patch);
   audit(d, actor, "SETTINGS_UPDATED", "PlatformConfig", "config", `Settings changed: ${Object.entries(patch).map(([k, v]) => `${k}=${v}`).join(", ")}`);

@@ -36,7 +36,7 @@ function describedBy(id: string, hint?: ReactNode, error?: string) {
   return error ? `${id}-error` : hint ? `${id}-hint` : undefined;
 }
 
-export function TextField({ label, hint, error, required, className, badge, prefix, ...props }: FieldShell & InputHTMLAttributes<HTMLInputElement> & { prefix?: string }) {
+export function TextField({ label, hint, error, required, className, inputClassName, badge, prefix, ...props }: FieldShell & InputHTMLAttributes<HTMLInputElement> & { prefix?: string; inputClassName?: string }) {
   const auto = useId();
   const id = props.id ?? auto;
   const input = (
@@ -46,7 +46,7 @@ export function TextField({ label, hint, error, required, className, badge, pref
       required={required}
       aria-invalid={error ? true : undefined}
       aria-describedby={describedBy(id, hint, error)}
-      className={cn("control", prefix && "border-l-0 pl-2", props.readOnly && "cursor-default")}
+      className={cn("control", prefix && "border-l-0 pl-2", props.readOnly && "cursor-default", inputClassName)}
     />
   );
   return (

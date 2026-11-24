@@ -5,7 +5,9 @@ import type { Assessment, Db, IndividualTaxReturn } from "../../domain/types";
 import { formatDate, formatDateTime, formatPeriod, maskId } from "../../lib/format";
 import { formatAmount, formatMoney } from "../../lib/money";
 import { requestCorrection, updateContact } from "../../services/registration";
+import { returnScope } from "../../services/individual";
 import { liabilityStatus, outstanding } from "../../services/payments";
+import { BalanceSheetView } from "../shared/BalanceSheet";
 import { Button } from "../../shared/gmc/Button";
 import { TextArea, TextField } from "../../shared/gmc/Form";
 import { ActionCard, Alert, EmptyState, Eyebrow, IconTile, StatusBadge } from "../../shared/gmc/Layout";
@@ -14,7 +16,7 @@ import { ruleSetForYear } from "../../services/calc";
 import { DataTable } from "../../shared/gmc/Table";
 import { openRequestsFor, ownerOf, paymentsFor } from "../shared/queries";
 import { Forbidden } from "../shared/TaxpayerShared";
-import { AssessmentBadge, CalcBreakdown, ConversionView, DemoTag, DocLink, KeyValue, MetricStrip, PageHeader, PaymentBadge, Section, SubmissionBadge, userName } from "../shared/ui";
+import { AssessmentBadge, CalcBreakdown, ConversionView, DocLink, KeyValue, MetricStrip, PageHeader, PaymentBadge, Section, SubmissionBadge, userName } from "../shared/ui";
 
 function useTaxpayer() {
   const db = useDb();
@@ -73,7 +75,9 @@ export function IndividualOverview() {
               ? currentAssessment?.status === "COMPLETED"
                 ? "GMCA has assessed it. Your Notice of Assessment is ready."
                 : `Reference ${current!.reference}. GMCA will tell you here when it has been assessed.`
-              : "Your employer's figures are already in. Add anything else you earned and the reliefs you're due."
+              : taxpayer.category === "FOREIGN"
+                ? "Your employer's figures are already in. Check them, claim any reliefs you're due, and submit."
+                : "Your employer's figures are already in. Add anything else you earned and the reliefs you're due."
           }
           cta={filed ? "View your return" : current ? "Continue your return" : "Start your return"}
         />
@@ -129,7 +133,7 @@ function IncomeCard({ db, taxpayerId, year }: { db: Db; taxpayerId: string; year
   const fig = (label: string, minor: number, tone?: "deduct" | "net") => (
     <div className="grid gap-1">
       <dt className="text-[15px] text-fg-2">{label}</dt>
-      <dd className={cn("num whitespace-nowrap font-serif text-[1.375rem] leading-tight sm:text-[1.625rem] 2xl:text-[2rem]", tone === "net" ? "text-brand-ink" : "text-fg")}>{formatMoney(tone === "deduct" ? -minor : minor)}</dd>
+      <dd className={cn("num whitespace-nowrap font-serif text-[1.25rem] leading-tight sm:text-[1.5rem] 2xl:text-[1.75rem]", tone === "net" ? "text-brand-ink" : "text-fg")}>{formatMoney(tone === "deduct" ? -minor : minor)}</dd>
     </div>
   );
   return (
@@ -144,7 +148,7 @@ function IncomeCard({ db, taxpayerId, year }: { db: Db; taxpayerId: string; year
         </div>
       </div>
       {inc.months ? (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-6">
+        <dl className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-x-6 gap-y-6">
           {fig("Gross salary", inc.gross)}
           {fig("Tax deducted", inc.tds, "deduct")}
           {fig(`Health contribution (${rules.healthRatePct}%)`, inc.health, "deduct")}
@@ -212,7 +216,6 @@ export function ReturnsPage() {
         </Section>
       ) : null}
       <ReturnsTable db={db} returns={returns} />
-      <p className="text-sm text-muted">Filing deadlines are not configured in this prototype. GMCA sets them; they are an open question.</p>
     </>
   );
 }
@@ -272,7 +275,6 @@ export function ReturnDetail({ id, justSubmitted }: { id: string; justSubmitted:
         <SubmissionBadge status={ret.submissionStatus} />
         {a ? <AssessmentBadge status={a.status} /> : null}
         {l ? <PaymentBadge status={liabilityStatus(db, l)} /> : null}
-        {ret.demoSeeded ? <DemoTag>Seeded history</DemoTag> : null}
       </div>
       <AssessmentProgress a={a} />
 
@@ -343,6 +345,7 @@ export function FiledDeclarations({ db, ret }: { db: Db; ret: IndividualTaxRetur
           ]}
         />
       </Section>
+      {ret.incomeSources.length || returnScope(db, ret).additionalIncome ? (
       <Section title="Additional income sources">
         <DataTable
           caption="Additional income"
@@ -355,10 +358,16 @@ export function FiledDeclarations({ db, ret }: { db: Db; ret: IndividualTaxRetur
             { key: "p", header: "Period", cell: (s) => <span className="text-xs">{formatDate(s.periodFrom, "short")} – {formatDate(s.periodTo, "short")}</span> },
             { key: "c", header: "Treatment", cell: (s) => (s.classification === "EXEMPT" ? "Exempt" : "Taxable") },
             { key: "a", header: "Amount", align: "right", cell: (s) => <ConversionView conversion={s.conversion} /> },
-            { key: "b", header: "Bank statement", cell: (s) => { const doc = db.documents.find((x) => x.id === s.bankStatementDocId); return doc ? <DocLink doc={doc}>{doc.fileName}</DocLink> : <span className="text-rej-fg">Missing</span>; } }
+            { key: "b", header: "Bank statement", cell: (s) => { const doc = db.documents.find((x) => x.id === s.bankStatementDocId); return doc ? <span className="grid"><DocLink doc={doc}>{doc.fileName}</DocLink>{s.statementSource === "DK_BANK" ? <span className="text-xs text-muted">Synced from DK Bank</span> : null}</span> : <span className="text-rej-fg">Missing</span>; } }
           ]}
         />
       </Section>
+      ) : null}
+      {ret.balanceSheet?.length || returnScope(db, ret).balanceSheet ? (
+        <Section title="Assets and liabilities">
+          <BalanceSheetView db={db} rules={rules} lines={ret.balanceSheet ?? []} />
+        </Section>
+      ) : null}
       <Section title="Reliefs claimed">
         <DataTable
           caption="Reliefs"
@@ -385,9 +394,6 @@ export function IndividualHistory() {
   return (
     <>
       <PageHeader title="Tax history" lead="Every return you've filed, kept exactly as submitted. Open a year to see its declarations, calculation and certificates." />
-      <Alert tone="review">
-        Records before financial year 2026 are demonstration data for this presentation. GMCA does not plan to migrate legacy filings.
-      </Alert>
       {returns.length === 0 ? (
         <EmptyState icon={FileText} title="No filed returns yet">Returns appear here once you submit them.</EmptyState>
       ) : (
@@ -503,7 +509,7 @@ export function ProfilePage() {
   return (
     <>
       <PageHeader title="My profile" lead="Your identity comes from a verified record. You can change your contact details; anything else needs a correction request to GMCA." />
-      <Section title="Identity" actions={<span className="flex items-center gap-2 text-sm text-muted">Verified by {v.provider === "NDI" ? "NDI" : "Immigration System"} <DemoTag>Simulated</DemoTag></span>}>
+      <Section title="Identity" actions={<span className="flex items-center gap-2 text-sm text-muted">Verified by {v.provider === "NDI" ? "NDI" : "Immigration System"}</span>}>
         <div className="panel p-5">
           <KeyValue
             rows={[

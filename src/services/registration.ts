@@ -131,7 +131,7 @@ export function registerCompany(d: Db, record: RegistryRecord, reference: string
   const user: User = { id: nextId(d, "USR"), name: rep.name.trim(), email: rep.email.trim(), role: "EMPLOYER", status: "ACTIVE", companyId: c.id, title: rep.designation.trim(), createdAt: nowIso() };
   d.users.push(user);
   audit(d, { id: user.id, name: user.name, role: "EMPLOYER" }, "COMPANY_REGISTERED", "Company", c.id, `${c.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship" : "Company"} ${c.uen} registered through simulated Corporate Registration System`);
-  notify(d, { role: "ADMIN" }, "New company account", `${c.name} (${c.uen}) registered.`, "/admin/taxpayers");
+  notify(d, { role: "ASSESSOR" }, "New company account", `${c.name} (${c.uen}) registered.`, "/gmca/taxpayers");
   return user;
 }
 

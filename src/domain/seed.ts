@@ -25,12 +25,12 @@ const k = (major: number) => toMinor(major);
  */
 const cls = (c: Partial<TaxpayerClass> & Pick<TaxpayerClass, "key" | "label" | "description" | "regime" | "rateBasis">): TaxpayerClass => ({ citizenship: "ANY", residency: "ANY", entityType: "ANY", flatRatePct: null, incomeScope: "WORLDWIDE", lastIncomeYear: null, enabled: true, ...c });
 const DEMO_CLASSES: TaxpayerClass[] = [
-  cls({ key: "IND_NON_RESIDENT", label: "Non-resident individual", description: "Taxpayers GMCA has recorded as non-resident. Demo rate pending GMCA's residency rules.", regime: "INDIVIDUAL", residency: "NON_RESIDENT", rateBasis: "FLAT", flatRatePct: 0, incomeScope: "GMC_SOURCE" }),
+  cls({ key: "IND_NON_RESIDENT", label: "Non-resident individual", description: "Taxpayers GMCA has recorded as non-resident. Rate pending GMCA's residency rules.", regime: "INDIVIDUAL", residency: "NON_RESIDENT", rateBasis: "FLAT", flatRatePct: 0, incomeScope: "GMC_SOURCE" }),
   cls({ key: "IND_NON_CITIZEN_2030", label: "Non-citizen (to 2030)", description: "Secondary sources report 0% for non-citizens of Bhutan on chargeable income derived on or before 31 December 2030. Not confirmed by GMCA, so it is switched off.", regime: "INDIVIDUAL", citizenship: "FOREIGN", rateBasis: "FLAT", flatRatePct: 0, incomeScope: "GMC_SOURCE", lastIncomeYear: 2030, enabled: false }),
   cls({ key: "IND_RESIDENT", label: "Resident individual", description: "Taxpayers GMCA has recorded as resident. Sources describe residency as living or working in GMC for at least 183 days in the tax year.", regime: "INDIVIDUAL", residency: "RESIDENT", rateBasis: "INDIVIDUAL_BANDS" }),
   cls({ key: "IND_STANDARD", label: "Individual, residency not determined", description: "Everyone not matched above. Nationality alone never changes the rate.", regime: "INDIVIDUAL", rateBasis: "INDIVIDUAL_BANDS" }),
   cls({ key: "CORP_COMPANY", label: "Company", description: "Standard corporate rate. Approved incentives override it for their effective period.", regime: "CORPORATE", entityType: "COMPANY", rateBasis: "FLAT", flatRatePct: 15 }),
-  cls({ key: "CORP_SOLE_PROP", label: "Sole proprietorship", description: "Taxed like a company in this demo. Many regimes tax sole proprietors at individual rates: switch to the Income Tax Act bands if GMCA confirms that.", regime: "CORPORATE", entityType: "SOLE_PROPRIETORSHIP", rateBasis: "FLAT", flatRatePct: 15 })
+  cls({ key: "CORP_SOLE_PROP", label: "Sole proprietorship", description: "Taxed like a company. Many regimes tax sole proprietors at individual rates: switch to the Income Tax Act bands if GMCA confirms that.", regime: "CORPORATE", entityType: "SOLE_PROPRIETORSHIP", rateBasis: "FLAT", flatRatePct: 15 })
 ];
 
 /**
@@ -54,29 +54,36 @@ const DEMO_ITEMS: TaxItem[] = [
   item({ key: "EXP_COST_OF_SALES", label: "Cost of sales", kind: "EXPENSE", treatment: "DEDUCTIBLE" }),
   item({ key: "EXP_PAYROLL", label: "Salaries, wages and health contributions", kind: "EXPENSE", treatment: "DEDUCTIBLE", evidenceExamples: ["Monthly TDS declarations"] }),
   item({ key: "EXP_RENT", label: "Rent and utilities", kind: "EXPENSE", treatment: "DEDUCTIBLE" }),
-  item({ key: "EXP_ENTERTAINMENT", label: "Entertainment", kind: "EXPENSE", treatment: "PARTLY_DEDUCTIBLE", ratePct: 50, description: "Demo share." }),
+  item({ key: "EXP_ENTERTAINMENT", label: "Entertainment", kind: "EXPENSE", treatment: "PARTLY_DEDUCTIBLE", ratePct: 50, description: "Half is deductible." }),
   item({ key: "EXP_DEPRECIATION", label: "Accounting depreciation and amortisation", kind: "EXPENSE", treatment: "NOT_DEDUCTIBLE", description: "Replaced by the capital allowances on each asset class." }),
   item({ key: "EXP_FINES", label: "Fines and penalties", kind: "EXPENSE", treatment: "NOT_DEDUCTIBLE" }),
   item({ key: "EXP_INCOME_TAX", label: "Income tax expense", kind: "EXPENSE", treatment: "NOT_DEDUCTIBLE" }),
   item({ key: "EXP_CAPEX", label: "Capital expenditure", kind: "EXPENSE", treatment: "CAPITALISED", description: "Relieved through the asset class it is added to." }),
 
   item({ key: "AST_LAND", label: "Land", kind: "ASSET", treatment: "NOT_DEPRECIABLE" }),
-  item({ key: "AST_BUILDINGS", label: "Buildings and structures", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 3, allowanceMethod: "STRAIGHT_LINE", description: "Demo rate." }),
-  item({ key: "AST_PLANT", label: "Plant and machinery", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 33.33, allowanceMethod: "STRAIGHT_LINE", description: "Demo rate: written off over three years.", evidenceExamples: ["Fixed asset register", "Purchase invoices"] }),
-  item({ key: "AST_VEHICLES", label: "Commercial vehicles", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 20, allowanceMethod: "REDUCING_BALANCE", description: "Demo rate." }),
+  item({ key: "AST_BUILDINGS", label: "Buildings and structures", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 3, allowanceMethod: "STRAIGHT_LINE", description: "" }),
+  item({ key: "AST_PLANT", label: "Plant and machinery", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 25, allowanceMethod: "STRAIGHT_LINE", description: "Written off over four years.", evidenceExamples: ["Fixed asset register", "Purchase invoices"] }),
+  item({ key: "AST_VEHICLES", label: "Commercial vehicles", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 20, allowanceMethod: "REDUCING_BALANCE", description: "" }),
   item({ key: "AST_COMPUTERS", label: "Computers and software", kind: "ASSET", treatment: "IMMEDIATE_WRITE_OFF" }),
-  item({ key: "AST_LOW_VALUE", label: "Low-value assets", kind: "ASSET", treatment: "IMMEDIATE_WRITE_OFF", description: "Demo: items below a threshold GMCA sets." }),
-  item({ key: "AST_INTANGIBLE", label: "Intellectual property and other intangibles", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 20, allowanceMethod: "STRAIGHT_LINE", description: "Demo rate: written down over five years." }),
-  item({ key: "AST_FINANCIAL", label: "Investments and financial assets", kind: "ASSET", treatment: "NOT_DEPRECIABLE" }),
+  item({ key: "AST_LOW_VALUE", label: "Low-value assets", kind: "ASSET", treatment: "IMMEDIATE_WRITE_OFF", description: "Items below a threshold GMCA sets." }),
+  item({ key: "AST_INTANGIBLE", label: "Intellectual property and other intangibles", kind: "ASSET", treatment: "CAPITAL_ALLOWANCE", ratePct: 20, allowanceMethod: "STRAIGHT_LINE", description: "Written down over five years." }),
+  item({ key: "AST_SHARES", label: "Shares and equity funds", kind: "ASSET", appliesTo: "BOTH", treatment: "NOT_DEPRECIABLE", investment: true, evidenceExamples: ["Share certificate", "Fund statement"] }),
+  item({ key: "AST_DEPOSITS", label: "Fixed deposits and bonds", kind: "ASSET", appliesTo: "BOTH", treatment: "NOT_DEPRECIABLE", investment: true, evidenceExamples: ["Deposit certificate", "Bond certificate"] }),
+  item({ key: "AST_FINANCIAL", label: "Other investments and financial assets", kind: "ASSET", appliesTo: "BOTH", treatment: "NOT_DEPRECIABLE", investment: true, evidenceExamples: ["Investment statement"] }),
+  item({ key: "AST_PROPERTY", label: "Land and buildings", kind: "ASSET", appliesTo: "INDIVIDUAL", treatment: "NOT_DEPRECIABLE", description: "Personal property, including your home." }),
+  item({ key: "AST_PERSONAL_VEHICLES", label: "Vehicles", kind: "ASSET", appliesTo: "INDIVIDUAL", treatment: "NOT_DEPRECIABLE" }),
+  item({ key: "AST_CASH", label: "Bank balances and cash", kind: "ASSET", appliesTo: "INDIVIDUAL", treatment: "NOT_DEPRECIABLE" }),
   item({ key: "AST_INVENTORY", label: "Inventory (trading stock)", kind: "ASSET", treatment: "NOT_DEPRECIABLE", description: "Relieved through cost of sales when sold." }),
 
   item({ key: "LIA_PROVISIONS", label: "Provisions (warranty, restructuring, legal)", kind: "LIABILITY", treatment: "DEDUCTIBLE_WHEN_PAID" }),
   item({ key: "LIA_ACCRUED_PAY", label: "Accrued bonuses and leave pay", kind: "LIABILITY", treatment: "DEDUCTIBLE_WHEN_PAID" }),
   item({ key: "LIA_LEASES", label: "Lease liabilities", kind: "LIABILITY", treatment: "DEDUCTIBLE_WHEN_PAID", description: "Lease payments are deducted as they are paid." }),
   item({ key: "LIA_BANK_LOANS", label: "Bank borrowings", kind: "LIABILITY", treatment: "INTEREST_DEDUCTIBLE" }),
-  item({ key: "LIA_RELATED_LOANS", label: "Shareholder and related-party loans", kind: "LIABILITY", treatment: "INTEREST_DEDUCTIBLE", ratePct: 30, description: "Demo interest limit." }),
+  item({ key: "LIA_RELATED_LOANS", label: "Shareholder and related-party loans", kind: "LIABILITY", treatment: "INTEREST_DEDUCTIBLE", ratePct: 30, description: "Interest limit." }),
   item({ key: "LIA_TRADE_PAYABLES", label: "Trade payables", kind: "LIABILITY", treatment: "NO_TAX_EFFECT" }),
-  item({ key: "LIA_TAX_PAYABLE", label: "Tax payable", kind: "LIABILITY", treatment: "NO_TAX_EFFECT" })
+  item({ key: "LIA_TAX_PAYABLE", label: "Tax payable", kind: "LIABILITY", treatment: "NO_TAX_EFFECT" }),
+  item({ key: "LIA_HOME_LOAN", label: "Home loan", kind: "LIABILITY", appliesTo: "INDIVIDUAL", treatment: "NO_TAX_EFFECT" }),
+  item({ key: "LIA_PERSONAL_LOANS", label: "Vehicle and personal loans", kind: "LIABILITY", appliesTo: "INDIVIDUAL", treatment: "NO_TAX_EFFECT" })
 ];
 
 const DEMO_RULES = (id: string, version: string, year: number): TaxRuleSet => ({
@@ -86,28 +93,28 @@ const DEMO_RULES = (id: string, version: string, year: number): TaxRuleSet => ({
   effectiveFromYear: year,
   status: "ACTIVE",
   individualBands: [
-    { fromMinor: 0, toMinor: k(10_000), ratePct: 0 },
-    { fromMinor: k(10_000), toMinor: k(30_000), ratePct: 5 },
-    { fromMinor: k(30_000), toMinor: k(60_000), ratePct: 7 },
-    { fromMinor: k(60_000), toMinor: k(100_000), ratePct: 9 },
-    { fromMinor: k(100_000), toMinor: k(200_000), ratePct: 11 },
-    { fromMinor: k(200_000), toMinor: k(500_000), ratePct: 13 },
-    { fromMinor: k(500_000), toMinor: null, ratePct: 15 }
+    { fromMinor: 0, toMinor: k(1_000_000), ratePct: 0 },
+    { fromMinor: k(1_000_000), toMinor: k(3_000_000), ratePct: 5 },
+    { fromMinor: k(3_000_000), toMinor: k(6_000_000), ratePct: 7 },
+    { fromMinor: k(6_000_000), toMinor: k(10_000_000), ratePct: 9 },
+    { fromMinor: k(10_000_000), toMinor: k(20_000_000), ratePct: 11 },
+    { fromMinor: k(20_000_000), toMinor: k(50_000_000), ratePct: 13 },
+    { fromMinor: k(50_000_000), toMinor: null, ratePct: 15 }
   ],
   tdsMethod: "BRACKET_WHOLE_AMOUNT",
   tdsBands: [
-    { fromMinor: 0, toMinor: k(1_000), ratePct: 0 },
-    { fromMinor: k(1_000), toMinor: k(3_000), ratePct: 2 },
-    { fromMinor: k(3_000), toMinor: k(25_000), ratePct: 5 },
-    { fromMinor: k(25_000), toMinor: null, ratePct: 10 }
+    { fromMinor: 0, toMinor: k(100_000), ratePct: 0 },
+    { fromMinor: k(100_000), toMinor: k(300_000), ratePct: 2 },
+    { fromMinor: k(300_000), toMinor: k(2_500_000), ratePct: 5 },
+    { fromMinor: k(2_500_000), toMinor: null, ratePct: 10 }
   ],
   healthRatePct: 1,
   healthAppliesTo: "ALL",
   reliefs: [
-    { key: "SPOUSE", label: "Spouse relief", description: "For a taxpayer supporting a spouse. Demo value.", capMinor: k(2_000), evidenceExamples: ["Marriage certificate"], enabled: true },
-    { key: "DISABILITY", label: "Disability relief", description: "For a taxpayer or dependant with a certified disability. Demo value.", capMinor: k(3_000), evidenceExamples: ["Disability certificate from a recognised medical board"], enabled: true },
-    { key: "CHILD_EDUCATION", label: "Child education relief", description: "School fees for dependent children. Demo value.", capMinor: k(1_500), evidenceExamples: ["School fee receipts", "Birth certificate"], enabled: true },
-    { key: "LIFE_INSURANCE", label: "Life insurance premium", description: "Premiums on a life policy for the taxpayer. Demo value.", capMinor: k(1_000), evidenceExamples: ["Premium statement from the insurer"], enabled: true }
+    { key: "SPOUSE", label: "Spouse relief", description: "For a taxpayer supporting a spouse.", capMinor: k(200_000), evidenceExamples: ["Marriage certificate"], enabled: true },
+    { key: "DISABILITY", label: "Disability relief", description: "For a taxpayer or dependant with a certified disability.", capMinor: k(300_000), evidenceExamples: ["Disability certificate from a recognised medical board"], enabled: true },
+    { key: "CHILD_EDUCATION", label: "Child education relief", description: "School fees for dependent children.", capMinor: k(150_000), evidenceExamples: ["School fee receipts", "Birth certificate"], enabled: true },
+    { key: "LIFE_INSURANCE", label: "Life insurance premium", description: "Premiums on a life policy for the taxpayer.", capMinor: k(100_000), evidenceExamples: ["Premium statement from the insurer"], enabled: true }
   ],
   taxpayerClasses: DEMO_CLASSES,
   taxItems: DEMO_ITEMS,
@@ -124,9 +131,9 @@ function base(): Db {
   const users: User[] = [
     { id: "usr-karma", name: "Karma Dorji", email: "karma.dorji@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-karma", createdAt: SEED_AT, demoLabel: "Citizen taxpayer" },
     { id: "usr-anika", name: "Anika Rao", email: "anika.rao@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-anika", createdAt: SEED_AT, demoLabel: "Foreign taxpayer" },
-    { id: "usr-pema", name: "Pema Wangchuk", email: "pema@gge.demo.test", role: "EMPLOYER", status: "ACTIVE", companyId: "co-gge", title: "Director", createdAt: SEED_AT, demoLabel: "Employer representative" },
-    { id: "usr-ugyen", name: "Ugyen Tshering", email: "ugyen.tshering@gmca.demo.test", role: "ASSESSOR", status: "ACTIVE", title: "Tax Officer (Assessment)", createdAt: SEED_AT, demoLabel: "GMCA assessor" },
-    { id: "usr-admin", name: "Deki Pelden", email: "deki.pelden@gmca.demo.test", role: "ADMIN", status: "ACTIVE", title: "System Administrator", createdAt: SEED_AT, demoLabel: "GMCA administrator" },
+    { id: "usr-pema", name: "Pema Wangchuk", email: "pema@gge.demo.test", role: "EMPLOYER", status: "ACTIVE", companyId: "co-gge", title: "Director", createdAt: SEED_AT, demoLabel: "Representatives" },
+    { id: "usr-ugyen", name: "Ugyen Tshering", email: "ugyen.tshering@gmca.demo.test", role: "ASSESSOR", status: "ACTIVE", title: "Tax Officer (Assessment)", createdAt: SEED_AT, demoLabel: "GMCA Tax Officer" },
+    { id: "usr-admin", name: "Deki Pelden", email: "deki.pelden@gmca.demo.test", role: "ADMIN", status: "ACTIVE", title: "System Administrator", createdAt: SEED_AT, demoLabel: "GMCA Administrator" },
     { id: "usr-sonam", name: "Sonam Choden", email: "sonam.choden@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-sonam", createdAt: SEED_AT },
     { id: "usr-tashi", name: "Tashi Namgay", email: "tashi.namgay@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-tashi", createdAt: SEED_AT },
     { id: "usr-lucas", name: "Lucas Tan", email: "lucas.tan@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-lucas", createdAt: SEED_AT },
@@ -134,19 +141,19 @@ function base(): Db {
     { id: "usr-kinley", name: "Kinley Wangmo", email: "kinley.wangmo@gmca.demo.test", role: "ASSESSOR", status: "ACTIVE", title: "Senior Tax Officer", createdAt: SEED_AT }
   ];
 
-  const tp = (t: Omit<IndividualTaxpayer, "registeredAt" | "phone" | "address" | "email"> & { email: string }): IndividualTaxpayer => ({ phone: "+975 17 000 000", address: "Gelephu (demo address)", registeredAt: SEED_AT, ...t });
+  const tp = (t: Omit<IndividualTaxpayer, "registeredAt" | "phone" | "address" | "email"> & { email: string }): IndividualTaxpayer => ({ phone: "+975 17 000 000", address: "Gelephu", registeredAt: SEED_AT, ...t });
   const taxpayers: IndividualTaxpayer[] = [
-    tp({ id: "tp-karma", tin: "TIN-000101", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000001", fullName: "Karma Dorji", dateOfBirth: "1988-04-12", nationality: "Bhutanese", email: "karma.dorji@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd (demo)", position: "Site Operations Lead", since: "2025-04-01" } }),
-    tp({ id: "tp-anika", tin: "TIN-000102", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0001", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", email: "anika.rao@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("IMMIGRATION", "IMM-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd (demo)", position: "Senior Engineer", since: "2025-04-01", permitExpiry: "2028-03-31" } }),
+    tp({ id: "tp-karma", tin: "TIN-000101", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000001", fullName: "Karma Dorji", dateOfBirth: "1988-04-12", nationality: "Bhutanese", email: "karma.dorji@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Site Operations Lead", since: "2025-04-01" } }),
+    tp({ id: "tp-anika", tin: "TIN-000102", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0001", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", email: "anika.rao@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("IMMIGRATION", "IMM-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Senior Engineer", since: "2025-04-01", permitExpiry: "2028-03-31" } }),
     tp({ id: "tp-sonam", tin: "TIN-000103", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000002", fullName: "Sonam Choden", dateOfBirth: "1992-09-03", nationality: "Bhutanese", email: "sonam.choden@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED02") }),
     tp({ id: "tp-tashi", tin: "TIN-000104", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000005", fullName: "Tashi Namgay", dateOfBirth: "1990-11-30", nationality: "Bhutanese", email: "tashi.namgay@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED03") }),
-    tp({ id: "tp-lucas", tin: "TIN-000105", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0002", fullName: "Lucas Tan", dateOfBirth: "1991-07-08", nationality: "Singaporean", email: "lucas.tan@demo.gmca.test", residencyStatus: "NON_RESIDENT", verification: verified("IMMIGRATION", "IMM-SIM-SEED02"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd (demo)", position: "Finance Manager", since: "2025-09-15", permitExpiry: "2027-12-31" } })
+    tp({ id: "tp-lucas", tin: "TIN-000105", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0002", fullName: "Lucas Tan", dateOfBirth: "1991-07-08", nationality: "Singaporean", email: "lucas.tan@demo.gmca.test", residencyStatus: "NON_RESIDENT", verification: verified("IMMIGRATION", "IMM-SIM-SEED02"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Finance Manager", since: "2025-09-15", permitExpiry: "2027-12-31" } })
   ];
 
   const co = (c: Omit<Company, "registeredAt">): Company => ({ ...c, registeredAt: SEED_AT });
   const companies: Company[] = [
-    co({ id: "co-gge", uen: "GMC-UEN-2025-0001", name: "Gelephu Green Energy Pvt Ltd (demo)", type: "COMPANY", sector: "Renewable energy", registeredAddress: "Plot 14, Energy Park, Gelephu (demo)", incorporatedOn: "2025-02-10", verification: verified("COMPANY_REGISTRY", "CRS-SIM-SEED01"), representatives: [{ name: "Pema Wangchuk", designation: "Director", email: "pema@gge.demo.test", phone: "+975 17 111 222" }] }),
-    co({ id: "co-mvh", uen: "GMC-UEN-2025-0002", name: "Mindful Valley Hospitality (demo)", type: "COMPANY", sector: "Hospitality", registeredAddress: "Riverside Road 3, Gelephu (demo)", incorporatedOn: "2025-06-01", verification: verified("COMPANY_REGISTRY", "CRS-SIM-SEED02"), representatives: [{ name: "Maya Fischer", designation: "General Manager", email: "maya@mvh.demo.test", phone: "+975 17 333 444" }] })
+    co({ id: "co-gge", uen: "GMC-UEN-2025-0001", name: "Gelephu Green Energy Pvt Ltd", type: "COMPANY", sector: "Renewable energy", registeredAddress: "Plot 14, Energy Park, Gelephu", incorporatedOn: "2025-02-10", verification: verified("COMPANY_REGISTRY", "CRS-SIM-SEED01"), representatives: [{ name: "Pema Wangchuk", designation: "Director", email: "pema@gge.demo.test", phone: "+975 17 111 222" }] }),
+    co({ id: "co-mvh", uen: "GMC-UEN-2025-0002", name: "Mindful Valley Hospitality", type: "COMPANY", sector: "Hospitality", registeredAddress: "Riverside Road 3, Gelephu", incorporatedOn: "2025-06-01", verification: verified("COMPANY_REGISTRY", "CRS-SIM-SEED02"), representatives: [{ name: "Maya Fischer", designation: "General Manager", email: "maya@mvh.demo.test", phone: "+975 17 333 444" }] })
   ];
 
   const emp = (e: Omit<Employee, "verification"> & { verified?: boolean }): Employee => {
@@ -166,14 +173,14 @@ function base(): Db {
   ];
 
   return {
-    schemaVersion: 7,
+    schemaVersion: 11,
     seededAt: new Date().toISOString(),
     counters: {},
     users,
     taxpayers,
     companies,
     incentives: [
-      { id: "inc-gge", companyId: "co-gge", ratePct: 5, effectiveFrom: "2025-01-01", effectiveTo: "2029-12-31", approvalReference: "GMCA-INC-DEMO-0001", notes: "Approved outside the platform. Demo record.", recordedBy: "usr-admin", recordedAt: SEED_AT, status: "ACTIVE" }
+      { id: "inc-gge", companyId: "co-gge", ratePct: 5, effectiveFrom: "2025-01-01", effectiveTo: "2029-12-31", approvalReference: "GMCA-INC-DEMO-0001", notes: "Approved outside the platform.", recordedBy: "usr-admin", recordedAt: SEED_AT, status: "ACTIVE" }
     ],
     employees,
     individualReturns: [],
@@ -187,13 +194,13 @@ function base(): Db {
     notifications: [],
     audit: [],
     integrationEvents: [],
-    ruleSets: [DEMO_RULES("rules-2025", "DEMO-2025.1", 2025), DEMO_RULES("rules-2026", "DEMO-2026.1", 2026)],
+    ruleSets: [DEMO_RULES("rules-2025", "FY2025.1", 2025), DEMO_RULES("rules-2026", "FY2026.1", 2026)],
     config: {
-      reportingCurrency: "USD",
+      reportingCurrency: "BTN",
       conversionDateRule: "PERIOD_END",
       currencies: [
-        { code: "USD", name: "US dollar", enabled: true },
         { code: "BTN", name: "Bhutanese ngultrum", enabled: true },
+        { code: "USD", name: "US dollar", enabled: true },
         { code: "INR", name: "Indian rupee", enabled: true },
         { code: "SGD", name: "Singapore dollar", enabled: true },
         { code: "THB", name: "Thai baht", enabled: true },
@@ -202,10 +209,10 @@ function base(): Db {
         { code: "AUD", name: "Australian dollar", enabled: false }
       ],
       exchangeRates: [
-        ...[["BTN", 0.0119], ["INR", 0.0119], ["SGD", 0.74], ["THB", 0.028], ["EUR", 1.08]].map(([c, r], i) => ({ id: `fx-25-${i}`, currency: c as string, rate: r as number, effectiveDate: "2025-01-01", source: "Demo rate", isDemo: true })),
-        ...[["BTN", 0.0118], ["INR", 0.0118], ["SGD", 0.75], ["THB", 0.029], ["EUR", 1.1], ["AUD", 0.65]].map(([c, r], i) => ({ id: `fx-26-${i}`, currency: c as string, rate: r as number, effectiveDate: "2026-01-01", source: "Demo rate", isDemo: true })),
-        // GMCA TDS note: US$1 = Nu 96.35 as at 30 Apr 2026, so Nu 96,350 = US$1,000 exactly.
-        { id: "fx-gmca-btn-2026-04", currency: "BTN", rate: 1 / 96.35, effectiveDate: "2026-04-30", source: "GMCA TDS note (US$1 = Nu 96.35)", isDemo: false }
+        // Round rates in Nu per unit so every conversion is easy to follow: US$1 = Nu 100, ₹1 = Nu 1, S$1 = Nu 75, ฿1 = Nu 3, €1 = Nu 120.
+        // GMCA's TDS note uses US$1 = Nu 96.35; administrators can add that rate under Currencies.
+        ...[["USD", 100], ["INR", 1], ["SGD", 75], ["THB", 3], ["EUR", 120]].map(([c, r], i) => ({ id: `fx-25-${i}`, currency: c as string, rate: r as number, effectiveDate: "2025-01-01", source: "Illustrative rate", isDemo: true })),
+        ...[["USD", 100], ["INR", 1], ["SGD", 75], ["THB", 3], ["EUR", 120], ["AUD", 60]].map(([c, r], i) => ({ id: `fx-26-${i}`, currency: c as string, rate: r as number, effectiveDate: "2026-01-01", source: "Illustrative rate", isDemo: true }))
       ],
       informationRequestDays: 14,
       currentFilingYear: 2026,
@@ -223,15 +230,16 @@ const actorOf = (d: Db, id: string): Actor => {
 };
 
 const PAY: Record<string, [number, string]> = {
-  "emp-pema": [6_500, "USD"],
-  "emp-karma": [4_200, "USD"],
-  "emp-anika": [350_000, "INR"],
-  "emp-sonam": [95_000, "BTN"],
-  "emp-lucas": [7_500, "SGD"],
-  "emp-jigme": [60_000, "BTN"],
-  "emp-yeshi": [70_000, "BTN"],
-  "emp-maya": [6_000, "EUR"],
-  "emp-niran": [120_000, "THB"]
+  // Round amounts that convert to round ngultrum at the rates above.
+  "emp-pema": [6_000, "USD"],
+  "emp-karma": [4_000, "USD"],
+  "emp-anika": [300_000, "INR"],
+  "emp-sonam": [100_000, "BTN"],
+  "emp-lucas": [8_000, "SGD"],
+  "emp-jigme": [50_000, "BTN"],
+  "emp-yeshi": [60_000, "BTN"],
+  "emp-maya": [5_000, "EUR"],
+  "emp-niran": [100_000, "THB"]
 };
 
 function months(from: string, to: string) {
@@ -328,9 +336,9 @@ export function buildSeed(): Db {
 
   // Karma Dorji · FY2025: submitted, assessed, paid. The historical example with certificates.
   const k25 = fileIndividual(d, "usr-karma", 2025, "2026-03-14T10:12:00.000Z", [
-    { category: "BUSINESS", description: "Freelance site surveys", payer: "Various clients (demo)", amountMinor: k(12_000), currency: "USD", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" },
-    { category: "RENTAL", description: "Apartment rent, Sarpang", payer: "Tenant (demo)", amountMinor: k(240_000), currency: "BTN", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" }
-  ], [{ key: "SPOUSE", amount: 2_000, file: "marriage-certificate.pdf" }]);
+    { category: "BUSINESS", description: "Freelance site surveys", payer: "Various clients", amountMinor: k(12_000), currency: "USD", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" },
+    { category: "RENTAL", description: "Apartment rent, Sarpang", payer: "Tenant", amountMinor: k(240_000), currency: "BTN", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" }
+  ], [{ key: "SPOUSE", amount: 200_000, file: "marriage-certificate.pdf" }]);
   assess(d, "usr-ugyen", k25.assessmentId!, [
     { at: "2026-03-20T08:00:00.000Z", to: "ASSIGNED" },
     { at: "2026-04-18T11:00:00.000Z", to: "COMPLETED" }
@@ -342,33 +350,19 @@ export function buildSeed(): Db {
     settlePayment(d, a, p.id, "SUCCESS");
   });
 
-  // Karma Dorji · FY2026: draft in progress (live demo continues from here).
-  fileIndividual(d, "usr-karma", 2026, "2026-11-20T15:20:00.000Z", [], [], false);
+  // Karma Dorji · FY2026: draft in progress (live demo continues from here). Employment alone leaves a
+  // Nu 30,000 credit; the freelance income brings it to Nu 40,000 to pay, so "Pay my tax" opens DK Bank.
+  fileIndividual(d, "usr-karma", 2026, "2026-11-20T15:20:00.000Z", [
+    { category: "BUSINESS", description: "Freelance site surveys", payer: "Various clients", amountMinor: k(10_000), currency: "USD", periodFrom: "2026-01-01", periodTo: "2026-10-31", classification: "TAXABLE", statementSource: "UPLOAD" }
+  ], [], false);
 
-  // Anika Rao · FY2025: assessed, balance unpaid (foreign taxpayer pays in the demo).
-  const a25 = fileIndividual(d, "usr-anika", 2025, "2026-03-28T09:00:00.000Z", [
-    { category: "INTEREST", description: "Savings interest, Bengaluru", payer: "Bank in India (demo)", amountMinor: k(180_000), currency: "INR", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" },
-    { category: "GIFT", description: "Gift from parents", payer: "Family (demo)", amountMinor: k(300_000), currency: "INR", periodFrom: "2025-06-01", periodTo: "2025-06-30", classification: "EXEMPT" }
-  ], [{ key: "LIFE_INSURANCE", amount: 800, file: "insurance-premium-statement.pdf" }]);
-  assess(d, "usr-ugyen", a25.assessmentId!, [
-    { at: "2026-04-02T08:00:00.000Z", to: "ASSIGNED" },
-    { at: "2026-05-02T10:30:00.000Z", to: "COMPLETED", adjustment: ["Consultancy fee omitted from return", 420, "Payment of USD 6,000 found on the bank statement for the interest account; taxed at the marginal demo rate."], summary: "Assessed with one adjustment for income found on the supporting bank statement." }
-  ]);
-
-  // Anika Rao · FY2026: submitted, GMCA needs more information.
-  const a26 = fileIndividual(d, "usr-anika", 2026, "2026-11-10T12:00:00.000Z", [
-    { category: "FOREIGN_EMPLOYMENT", description: "Remote advisory work for former employer", payer: "Engineering firm, Singapore (demo)", amountMinor: k(9_000), currency: "SGD", periodFrom: "2026-01-01", periodTo: "2026-06-30", classification: "TAXABLE" }
-  ], []);
-  assess(d, "usr-ugyen", a26.assessmentId!, [
-    { at: "2026-11-12T08:00:00.000Z", to: "ASSIGNED" },
-    { at: "2026-11-13T09:00:00.000Z", to: "UNDER_REVIEW" },
-    { at: "2026-11-14T10:00:00.000Z", to: "INFO", info: ["Please send the advisory contract and confirm whether this work was performed while you were in GMC.", ["Signed advisory contract", "Travel record for January to June 2026"]] }
-  ]);
+  // Anika Rao (foreign national): happy path. Nothing filed yet; her 2026 return is ready to start with the
+  // employer's declarations filled in (Nu 3,000,000 pay, Nu 60,000 TDS), leaving Nu 40,000 to pay through DK Bank.
 
   // Sonam Choden · FY2026: responded to a request.
   const s26 = fileIndividual(d, "usr-sonam", 2026, "2026-11-05T08:30:00.000Z", [
-    { category: "DIVIDEND", description: "Dividends from a Thimphu company", payer: "Listed company (demo)", amountMinor: k(85_000), currency: "BTN", periodFrom: "2026-01-01", periodTo: "2026-09-30", classification: "TAXABLE" }
-  ], [{ key: "DISABILITY", amount: 3_000, file: "disability-certificate.pdf" }]);
+    { category: "DIVIDEND", description: "Dividends from a Thimphu company", payer: "Listed company", amountMinor: k(100_000), currency: "BTN", periodFrom: "2026-01-01", periodTo: "2026-09-30", classification: "TAXABLE" }
+  ], [{ key: "DISABILITY", amount: 300_000, file: "disability-certificate.pdf" }]);
   assess(d, "usr-ugyen", s26.assessmentId!, [
     { at: "2026-11-06T08:00:00.000Z", to: "ASSIGNED" },
     { at: "2026-11-07T08:00:00.000Z", to: "UNDER_REVIEW" },
@@ -383,8 +377,8 @@ export function buildSeed(): Db {
 
   // Tashi Namgay · FY2026: waiting to be assigned.
   fileIndividual(d, "usr-tashi", 2026, "2026-11-18T16:45:00.000Z", [
-    { category: "BUSINESS", description: "Software consultancy", payer: "Druk Digital Labs (demo)", amountMinor: k(30_000), currency: "USD", periodFrom: "2026-01-01", periodTo: "2026-10-31", classification: "TAXABLE" }
-  ], [{ key: "CHILD_EDUCATION", amount: 1_200, file: "school-fee-receipts.pdf" }]);
+    { category: "BUSINESS", description: "Software consultancy", payer: "Druk Digital Labs", amountMinor: k(30_000), currency: "USD", periodFrom: "2026-01-01", periodTo: "2026-10-31", classification: "TAXABLE" }
+  ], [{ key: "CHILD_EDUCATION", amount: 100_000, file: "school-fee-receipts.pdf" }]);
 
   // Lucas Tan · FY2026: non-resident (recorded by GMCA), assigned to another officer.
   const l26 = fileIndividual(d, "usr-lucas", 2026, "2026-11-08T11:00:00.000Z", [], []);
@@ -392,7 +386,7 @@ export function buildSeed(): Db {
     { at: "2026-11-09T08:00:00.000Z", to: "ASSIGNED" },
     { at: "2026-11-10T08:00:00.000Z", to: "UNDER_REVIEW" }
   ]);
-  withClock("2026-11-10T09:00:00.000Z", () => addNote(d, actorOf(d, "usr-kinley"), l26.assessmentId!, "Non-resident status recorded by GMCA administration. Checking the demo non-resident rate is applied."));
+  withClock("2026-11-10T09:00:00.000Z", () => addNote(d, actorOf(d, "usr-kinley"), l26.assessmentId!, "Non-resident status recorded by GMCA administration. Checking the non-resident rate is applied."));
 
   // Corporate returns FY2025.
   const pema = actorOf(d, "usr-pema");
@@ -401,7 +395,13 @@ export function buildSeed(): Db {
     const owner = { kind: "COMPANY" as const, id: "co-gge" };
     const fs = seededUpload(d, pema, "AUDITED_FINANCIALS", "gge-audited-financial-statements-2025.pdf", { kind: "CORPORATE_RETURN", id: r.id }, owner);
     const fa = seededUpload(d, pema, "FIXED_ASSET_REPORT", "gge-fixed-asset-register-2025.pdf", { kind: "CORPORATE_RETURN", id: r.id }, owner);
-    saveCorporateDraft(d, pema, r.id, { financials: { revenueMinor: k(2_450_000), otherIncomeMinor: k(35_000), expensesMinor: k(1_720_000), adjustments: [{ id: "adj-1", label: "Entertainment expenses added back", amountMinor: k(18_000) }] }, auditedFsDocIds: [fs.id], fixedAssetDocIds: [fa.id], declarationAccepted: true });
+    const fd = seededUpload(d, pema, "ASSET_EVIDENCE", "gge-fixed-deposit-certificate-2025.pdf", { kind: "CORPORATE_RETURN", id: r.id }, owner);
+    const balanceSheet = [
+      { id: "bs-1", itemKey: "AST_PLANT", description: "Solar panels and inverters", valueMinor: k(80_000_000), docIds: [] },
+      { id: "bs-2", itemKey: "AST_DEPOSITS", description: "Fixed deposit, DK Bank", valueMinor: k(20_000_000), docIds: [fd.id] },
+      { id: "bs-3", itemKey: "LIA_BANK_LOANS", description: "Project loan, DK Bank", valueMinor: k(50_000_000), docIds: [] }
+    ];
+    saveCorporateDraft(d, pema, r.id, { financials: { revenueMinor: k(250_000_000), otherIncomeMinor: k(5_000_000), expensesMinor: k(150_000_000), adjustments: [{ id: "adj-1", label: "Entertainment expenses added back", amountMinor: k(2_000_000) }] }, balanceSheet, auditedFsDocIds: [fs.id], fixedAssetDocIds: [fa.id], declarationAccepted: true });
     submitCorporate(d, pema, r.id);
     return r;
   });
@@ -421,7 +421,7 @@ export function buildSeed(): Db {
     const owner = { kind: "COMPANY" as const, id: "co-mvh" };
     const fs = seededUpload(d, maya, "AUDITED_FINANCIALS", "mvh-audited-financial-statements-2025.pdf", { kind: "CORPORATE_RETURN", id: r.id }, owner);
     const fa = seededUpload(d, maya, "FIXED_ASSET_REPORT", "mvh-fixed-assets-2025.pdf", { kind: "CORPORATE_RETURN", id: r.id }, owner);
-    saveCorporateDraft(d, maya, r.id, { financials: { revenueMinor: k(640_000), otherIncomeMinor: 0, expensesMinor: k(590_000), adjustments: [] }, auditedFsDocIds: [fs.id], fixedAssetDocIds: [fa.id], declarationAccepted: true });
+    saveCorporateDraft(d, maya, r.id, { financials: { revenueMinor: k(60_000_000), otherIncomeMinor: 0, expensesMinor: k(50_000_000), adjustments: [] }, auditedFsDocIds: [fs.id], fixedAssetDocIds: [fa.id], declarationAccepted: true });
     submitCorporate(d, maya, r.id);
     return r;
   });

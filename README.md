@@ -14,7 +14,7 @@ npm test           # calculation, currency, permissions, payments, submission
 npm run build      # typecheck + production build
 ```
 
-Data lives in this browser's `localStorage` (`gmca-v2:db`). To return to the seeded state, use **Reset demo data**: it's in the account menu for every role, on the sign-in page, and under *Admin → Integration demo settings*.
+Data lives in this browser's `localStorage` (`gmca-v2:db`). To return to the seeded state, sign in as the administrator and use **Reset data** under *Integration settings*.
 
 ## Deploy (SELISE Blocks)
 
@@ -28,17 +28,17 @@ blocks release deploy --repo tanvirshariar161/gmc-portal-v2 --dry-run --json
 blocks release deploy --repo tanvirshariar161/gmc-portal-v2 --yes --wait --json
 ```
 
-## Demo accounts
+## Sample accounts
 
-Pick one on the sign-in page. You can switch role from the account menu. Role switching exists only in this demo.
+Sign in with email and password. Every seeded account uses the password `Gmca@2026`; the sign-in page lists the accounts under *Sample accounts* and fills them in for you. Individual taxpayers then approve the sign-in in the Bhutan NDI app: the page shows a QR code, the simulated wallet scans it within a second and approves about a second later. A password alone never opens a taxpayer's records. Setting the NDI integration to *no match* or *unavailable* shows the declined and unavailable states. To change account, sign out.
 
 | Account | Person | What to show |
 |---|---|---|
-| Citizen taxpayer | Karma Dorji | Continue the 2026 return: employer income is prefilled, add a source in another currency with its own bank statement, claim a relief, review the calculation, submit, open the Acknowledgement Certificate. In Tax history, open the 2025 return read-only with its certificate, Notice of Assessment and payment receipt. |
-| Foreign taxpayer | Anika Rao | Answer GMCA's open information request. Pay the assessed 2025 balance through the simulated DK Bank, trying the *pending* and *decline* outcomes. |
-| Employer representative | Pema Wangchuk | Start the November 2026 declaration, change an employee's pay currency or import pay from a CSV saved in Excel (download the template, edit, upload, review, apply), submit, then pay October (still outstanding). Add a foreign employee (verified by the simulated Immigration System). File the 2026 corporate return and see the recorded 5% incentive applied. |
-| GMCA assessor | Ugyen Tshering | Work queue filters. Pick up an unassigned return, review the evidence, verify the calculation, record an adjustment or request information, then complete the assessment and issue the Notice of Assessment. A case assigned to Kinley Wangmo is read-only for Ugyen. |
-| GMCA administrator | Deki Pelden | Create an officer, change roles, publish a new rule set version, edit reliefs, record or revoke an incentive, add a demo exchange rate, switch simulators to *no match / unavailable / always fail*, read the audit log. |
+| Citizen taxpayer | Karma Dorji | Continue the 2026 return: employer income (Nu 4,000,000) and a US$10,000 freelance source (Nu 1,000,000) are filled in, leaving Nu 40,000 to pay. **Pay my tax** opens the simulated DK Bank page (connecting, approve, confirming) and the return is submitted once the bank confirms. Add income with **Sync statement from DK Bank** (simulated: rent and interest, statement attached) or **Bank statement upload**, claim a relief, declare assets, investments (a document per row) and liabilities, review the calculation, submit, open the Acknowledgement Certificate. In Tax history, open the 2025 return read-only with its certificate, Notice of Assessment and payment receipt. |
+| Foreign taxpayer | Anika Rao | Happy path: nothing filed yet. Start the 2026 return: employer pay (₹300,000 a month, Nu 3,000,000 for the year) and TDS are filled in, with no additional income or assets step for foreign nationals. Review, then **Pay my tax** (Nu 40,000) through DK Bank and the return is submitted. |
+| Representatives | Pema Wangchuk | Start the November 2026 declaration, change an employee's pay currency or import pay from a CSV saved in Excel (download the template, edit, upload, review, apply). See the total split by pay currency, then either submit and pay through DK Bank, or say you've already paid in DK Bank and upload the receipt. Pay October (still outstanding). Add a foreign employee (verified by the simulated Immigration System). File the 2026 corporate return and see the recorded 5% incentive applied. |
+| GMCA Tax Officer | Ugyen Tshering | *Assessment of returns* has three tabs: Individual, Corporate and Information Requests. Pick up an unassigned return, review the evidence, verify the calculation, record an adjustment or request information, then complete the assessment and issue the Notice of Assessment. A case assigned to Kinley Wangmo is read-only for Ugyen. In *Payments & liabilities*, open any row to see the liability, every payment attempt and its reconciliation. *Taxpayers & companies* opens each record, where the officer records tax residency. |
+| GMCA Administrator | Deki Pelden | Create an officer, change roles, set tax rules for any financial year (type a year such as 2028, edit, publish), edit reliefs, record or revoke an incentive, add an exchange rate, switch integrations to *no match / unavailable / always fail*, read the audit log. |
 
 Seeded records for registration: citizen CID `10000000004` with date of birth 18 Jun 1996; work permit `WP-DEMO-2026-0003` or passport `DEMO-TH-5521`; company `GMC-UEN-2026-0003`; sole proprietorship `GMC-SP-2026-0004`.
 
@@ -51,7 +51,7 @@ src/
   services/      calc (tax engine), currency, integrations (adapter interfaces + seeded providers),
                  individual, employer (directory, monthly TDS, corporate), assessment, payments,
                  documents, registration, admin
-  features/      auth, individual, employer, gmca (assessor), admin, shared (payments, documents,
+  features/      auth, individual, employer, gmca (tax officer), admin, shared (payments, documents,
                  certificates, messages, information requests)
   shared/gmc/    design-system components carried over from version 1
 ```
@@ -65,16 +65,21 @@ src/
 
 ## Rules from GMCA sources
 
-- **Individual bands** follow the GMC Income Tax Act 2025: 0% to $10,000, 5% to $30,000, 7% to $60,000, 9% to $100,000, 11% to $200,000, 13% to $500,000, then 15%. These are the values version 1 recorded from the Act; verify them against the Act text.
-- **Monthly TDS** follows GMCA's TDS note. The rate applies to the whole month's pay, and each bracket includes its upper limit: up to $1,000 is 0%; over $1,000 up to $3,000 is 2%; over $3,000 up to $25,000 is 5%; over $25,000 is 10%.
-- **Nu thresholds.** Ngultrum pay is converted at US$1 = Nu 96.35 (rate as at 30 Apr 2026, stored as a GMCA rate). The Nu thresholds are therefore 96,350 / 289,050 / 2,408,750.
+- **Individual bands** follow the GMC Income Tax Act 2025 (US$ 10,000 / 30,000 / 60,000 / 100,000 / 200,000 / 500,000 at 0% to 15%), entered in Nu as below. These are the values version 1 recorded from the Act; verify them against the Act text.
+- **Monthly TDS** follows GMCA's TDS note. The rate applies to the whole month's pay, and each bracket includes its upper limit (US$ 1,000 / 3,000 / 25,000, entered in Nu as below).
+- **Amounts in ngultrum.** The reporting currency is BTN, shown as "Nu". The Act bands and the TDS table are entered in Nu at a round US$1 = Nu 100: individual bands 0% to Nu 1,000,000, 5% to 3,000,000, 7% to 6,000,000, 9% to 10,000,000, 11% to 20,000,000, 13% to 50,000,000, then 15%; monthly TDS 0% up to Nu 100,000, 2% up to 300,000, 5% up to 2,500,000, then 10%. GMCA's TDS note converts at US$1 = Nu 96.35; add that rate under Currencies to use it.
 - **Filing deadline.** YA returns (income year + 1) are due 30 April. The date is configurable under Tax configuration and shown as "days left" on the taxpayer overview.
+- **Rules per financial year.** Each rule set has the year it applies from; it applies until a later year has its own. Publishing for a year with no rules of its own creates that year's first version (for example `FY2028.1`).
 
 ## Demo assumptions (not GMCA rules)
 
-All of these are configurable by an administrator and labelled "demo" in the UI.
+All of these are configurable by an administrator.
 
-- Reporting currency USD, shown with a $ sign; other currencies show their ISO code. Demo exchange rates for INR, SGD, THB, EUR and AUD, plus BTN before 30 Apr 2026. GBP has no rate, to show the *conversion pending* state. Conversion uses the rate in force at the end of the income or payroll period. Rounding is half-up to the cent.
+- **Easy numbers.** Rates are round Nu per unit: US$1 = Nu 100, ₹1 = Nu 1, S$1 = Nu 75, ฿1 = Nu 3, €1 = Nu 120, A$1 = Nu 60. Salaries are round too (US$4,000, Nu 100,000, ₹300,000), and whole amounts show without decimals.
+- **Assets and liabilities.** Citizens and companies list what they owned and owed on 31 December, using the asset and liability types in the tax item catalogue. Investments are asset types marked as investments. The figures are declared for information and don't change the tax.
+- **Payment evidence.** A declaration paid in DK Bank before submitting counts as paid at once; GMCA verifies the uploaded receipt later.
+
+- Reporting currency BTN, shown as "Nu"; USD shows a $ sign and other currencies their ISO code. Illustrative exchange rates for USD, INR, SGD, THB, EUR and AUD. GBP has no rate, to show the *conversion pending* state. Conversion uses the rate in force at the end of the income or payroll period. Rounding is half-up to the cent.
 - Health contribution is 1% for all employees. No social security (clean wage policy).
 - Rates come from **taxpayer classes** (Admin → Tax classification). Individuals match on citizenship and GMCA-recorded residency; businesses on entity type. The first enabled match applies, and every taxpayer must resolve before a rule set can be published. Seeded: non-resident 0% flat, resident and not-determined on the Act bands, company and sole proprietorship 15% flat. A "non-citizen 0% to 2030" class (from secondary sources) is seeded switched off. Nationality alone never changes the treatment unless GMCA turns that class on.
 - The approved incentive for Gelephu Green Energy is 5%; incentives override the class rate.
@@ -97,4 +102,5 @@ Platform: branding, SSO, hosting (on-premises in Bhutan, TashiCell Gelephu prefe
 - Single-browser storage. There is no server, so data isn't shared between people or devices.
 - Uploads over 400 KB keep their metadata only, so browser storage doesn't fill up. Seeded documents have no file content.
 - "Download (PDF)" uses the browser's print dialog.
-- Dev-only shortcut: `?demo-as=<userId>` signs in on the dev server (for screenshots and automated checks). It is disabled in production builds.
+- Sign-in is local to this browser: one sample password for every account and a simulated NDI wallet. A real deployment uses the GMC identity service and a live NDI verifier.
+- Dev-only shortcut: `?demo-as=<userId>` signs in on the dev server (for screenshots and automated checks). It skips the NDI step and is disabled in production builds.

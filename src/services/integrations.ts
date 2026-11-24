@@ -39,7 +39,12 @@ export interface PaymentProvider {
   /** The simulated bank's answer for this attempt. */
   settle(bankSessionRef: string, chosen: PaymentOutcome): { outcome: PaymentOutcome; bankTransactionRef?: string; failureReason?: string };
   recheck(bankSessionRef: string): { outcome: PaymentOutcome; bankTransactionRef?: string; failureReason?: string };
+  /** Income credits on the account holder's DK Bank statement for a year. null when the bank is unavailable. */
+  statementCredits(year: number): StatementSync | null;
 }
+
+export type StatementCredit = { category: string; description: string; payer: string; amountMinor: number; currency: string; periodFrom: string; periodTo: string };
+export type StatementSync = { reference: string; account: string; credits: StatementCredit[] };
 
 // ---------- Seeded external records (fictional) ----------
 
@@ -52,18 +57,18 @@ export const NDI_RECORDS: NdiRecord[] = [
 ];
 
 export const IMMIGRATION_RECORDS: ImmigrationRecord[] = [
-  { identifierType: "WORK_PERMIT", identifier: "WP-DEMO-2026-0001", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", passportNumber: "DEMO-IN-4411", permitNumber: "WP-DEMO-2026-0001", permitExpiry: "2028-03-31", employer: "Gelephu Green Energy Pvt Ltd (demo)", position: "Senior Engineer", employedSince: "2025-04-01" },
-  { identifierType: "PASSPORT", identifier: "DEMO-IN-4411", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", passportNumber: "DEMO-IN-4411", permitNumber: "WP-DEMO-2026-0001", permitExpiry: "2028-03-31", employer: "Gelephu Green Energy Pvt Ltd (demo)", position: "Senior Engineer", employedSince: "2025-04-01" },
-  { identifierType: "WORK_PERMIT", identifier: "WP-DEMO-2026-0002", fullName: "Lucas Tan", dateOfBirth: "1991-07-08", nationality: "Singaporean", passportNumber: "DEMO-SG-7720", permitNumber: "WP-DEMO-2026-0002", permitExpiry: "2027-12-31", employer: "Gelephu Green Energy Pvt Ltd (demo)", position: "Finance Manager", employedSince: "2025-09-15" },
-  { identifierType: "WORK_PERMIT", identifier: "WP-DEMO-2026-0003", fullName: "Maya Fischer", dateOfBirth: "1984-12-01", nationality: "German", passportNumber: "DEMO-DE-0093", permitNumber: "WP-DEMO-2026-0003", permitExpiry: "2027-06-30", employer: "Mindful Valley Hospitality (demo)", position: "General Manager", employedSince: "2026-01-10" },
-  { identifierType: "PASSPORT", identifier: "DEMO-TH-5521", fullName: "Niran Chaiyaporn", dateOfBirth: "1993-03-25", nationality: "Thai", passportNumber: "DEMO-TH-5521", permitNumber: "WP-DEMO-2026-0004", permitExpiry: "2027-09-30", employer: "Mindful Valley Hospitality (demo)", position: "Chef de Cuisine", employedSince: "2026-02-01" }
+  { identifierType: "WORK_PERMIT", identifier: "WP-DEMO-2026-0001", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", passportNumber: "DEMO-IN-4411", permitNumber: "WP-DEMO-2026-0001", permitExpiry: "2028-03-31", employer: "Gelephu Green Energy Pvt Ltd", position: "Senior Engineer", employedSince: "2025-04-01" },
+  { identifierType: "PASSPORT", identifier: "DEMO-IN-4411", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", passportNumber: "DEMO-IN-4411", permitNumber: "WP-DEMO-2026-0001", permitExpiry: "2028-03-31", employer: "Gelephu Green Energy Pvt Ltd", position: "Senior Engineer", employedSince: "2025-04-01" },
+  { identifierType: "WORK_PERMIT", identifier: "WP-DEMO-2026-0002", fullName: "Lucas Tan", dateOfBirth: "1991-07-08", nationality: "Singaporean", passportNumber: "DEMO-SG-7720", permitNumber: "WP-DEMO-2026-0002", permitExpiry: "2027-12-31", employer: "Gelephu Green Energy Pvt Ltd", position: "Finance Manager", employedSince: "2025-09-15" },
+  { identifierType: "WORK_PERMIT", identifier: "WP-DEMO-2026-0003", fullName: "Maya Fischer", dateOfBirth: "1984-12-01", nationality: "German", passportNumber: "DEMO-DE-0093", permitNumber: "WP-DEMO-2026-0003", permitExpiry: "2027-06-30", employer: "Mindful Valley Hospitality", position: "General Manager", employedSince: "2026-01-10" },
+  { identifierType: "PASSPORT", identifier: "DEMO-TH-5521", fullName: "Niran Chaiyaporn", dateOfBirth: "1993-03-25", nationality: "Thai", passportNumber: "DEMO-TH-5521", permitNumber: "WP-DEMO-2026-0004", permitExpiry: "2027-09-30", employer: "Mindful Valley Hospitality", position: "Chef de Cuisine", employedSince: "2026-02-01" }
 ];
 
 export const REGISTRY_RECORDS: RegistryRecord[] = [
-  { uen: "GMC-UEN-2025-0001", name: "Gelephu Green Energy Pvt Ltd (demo)", type: "COMPANY", sector: "Renewable energy", registeredAddress: "Plot 14, Energy Park, Gelephu (demo)", incorporatedOn: "2025-02-10", status: "LIVE", directors: ["Pema Wangchuk", "Lucas Tan"] },
-  { uen: "GMC-UEN-2025-0002", name: "Mindful Valley Hospitality (demo)", type: "COMPANY", sector: "Hospitality", registeredAddress: "Riverside Road 3, Gelephu (demo)", incorporatedOn: "2025-06-01", status: "LIVE", directors: ["Maya Fischer"] },
-  { uen: "GMC-UEN-2026-0003", name: "Druk Digital Labs (demo)", type: "COMPANY", sector: "Software", registeredAddress: "Innovation Block B, Gelephu (demo)", incorporatedOn: "2026-03-15", status: "LIVE", directors: ["Tashi Namgay"] },
-  { uen: "GMC-SP-2026-0004", name: "Dechen's Tailoring (sole proprietorship, demo)", type: "SOLE_PROPRIETORSHIP", sector: "Retail and services", registeredAddress: "Market Lane 7, Gelephu (demo)", incorporatedOn: "2026-05-20", status: "LIVE", directors: ["Dechen Yangzom"] }
+  { uen: "GMC-UEN-2025-0001", name: "Gelephu Green Energy Pvt Ltd", type: "COMPANY", sector: "Renewable energy", registeredAddress: "Plot 14, Energy Park, Gelephu", incorporatedOn: "2025-02-10", status: "LIVE", directors: ["Pema Wangchuk", "Lucas Tan"] },
+  { uen: "GMC-UEN-2025-0002", name: "Mindful Valley Hospitality", type: "COMPANY", sector: "Hospitality", registeredAddress: "Riverside Road 3, Gelephu", incorporatedOn: "2025-06-01", status: "LIVE", directors: ["Maya Fischer"] },
+  { uen: "GMC-UEN-2026-0003", name: "Druk Digital Labs", type: "COMPANY", sector: "Software", registeredAddress: "Innovation Block B, Gelephu", incorporatedOn: "2026-03-15", status: "LIVE", directors: ["Tashi Namgay"] },
+  { uen: "GMC-SP-2026-0004", name: "Dechen's Tailoring (sole proprietorship)", type: "SOLE_PROPRIETORSHIP", sector: "Retail and services", registeredAddress: "Market Lane 7, Gelephu", incorporatedOn: "2026-05-20", status: "LIVE", directors: ["Dechen Yangzom"] }
 ];
 
 // ---------- Seeded implementations ----------
@@ -114,7 +119,7 @@ export class SeededDkBankProvider implements PaymentProvider {
   }
   private answer(outcome: PaymentOutcome) {
     if (outcome === "SUCCESS") return { outcome, bankTransactionRef: ref("DKBTXN") };
-    if (outcome === "FAILURE") return { outcome, failureReason: "Declined by the simulated bank (demo outcome)." };
+    if (outcome === "FAILURE") return { outcome, failureReason: "Declined by DK Bank." };
     return { outcome };
   }
   settle(_session: string, chosen: PaymentOutcome) {
@@ -123,6 +128,18 @@ export class SeededDkBankProvider implements PaymentProvider {
   }
   recheck() {
     return this.answer(this.config.pendingResolvesTo);
+  }
+  /** Seeded statement: the same demo credits for every account holder, in round ngultrum amounts. */
+  statementCredits(year: number): StatementSync | null {
+    if (this.config.dkBank === "FAILURE") return null;
+    return {
+      reference: ref("DKBSTM"),
+      account: "Savings account ••••4021",
+      credits: [
+        { category: "RENTAL", description: "Rent received, Gelephu apartment (Nu 20,000 a month)", payer: "Tenant", amountMinor: 24_000_000, currency: "BTN", periodFrom: `${year}-01-01`, periodTo: `${year}-12-31` },
+        { category: "INTEREST", description: "Savings interest", payer: "DK Bank", amountMinor: 1_000_000, currency: "BTN", periodFrom: `${year}-01-01`, periodTo: `${year}-12-31` }
+      ]
+    };
   }
 }
 

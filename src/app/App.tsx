@@ -1,11 +1,11 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import type { Role } from "../domain/types";
-import { AdminOverview, AdminTaxpayerDetail, AuditPage, ClassificationPage, CurrencyPage, IncentivesPage, IntegrationsPage, MonitoringPage, ReliefConfigPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
+import { AdminOverview, AuditPage, ClassificationPage, CurrencyPage, IncentivesPage, IntegrationsPage, ReliefConfigPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
 import { LoginPage, NotFound, RegisterChooser, RegisterCitizen, RegisterCompany, RegisterForeign } from "../features/auth/AuthPages";
 import { CorporateListPage, CorporateReturnPage, CorporateWizardEntry, EmployerHistory } from "../features/employer/CorporatePages";
 import { CompanyProfile, DeclarationPage, EmployeeEditor, EmployeesPage, EmployerOverview, PayrollPage } from "../features/employer/EmployerPages";
-import { CasePage, GmcaDocumentsPage, GmcaOverview, GmcaPaymentsPage, GmcaRequestsPage, QueuePage, ReportsPage, TaxpayerDetail, TaxpayersPage } from "../features/gmca/GmcaPages";
+import { CasePage, GmcaDocumentsPage, GmcaOverview, GmcaPaymentsPage, LiabilityDetail, OfficerTaxpayerDetail, QueuePage, ReportsPage, TaxpayersPage } from "../features/gmca/GmcaPages";
 import { IncomePage, IndividualHistory, IndividualOverview, ProfilePage, ReturnDetail, ReturnsPage } from "../features/individual/IndividualPages";
 import { ReturnWizardEntry } from "../features/individual/ReturnWizard";
 import { BankPage, DocumentViewer, DocumentsPage, MessagesPage, PayPage, PaymentsPage, ReceiptPage, RequestPage } from "../features/shared/TaxpayerShared";
@@ -52,16 +52,17 @@ const ROUTES: Route[] = [
   { path: "/requests/:id", roles: TAXPAYER, render: (p) => <RequestPage id={p.id!} /> },
   { path: "/documents/:id", roles: ALL, render: (p) => <DocumentViewer key={p.id} id={p.id!} /> },
 
-  // GMCA assessor
+  // GMCA tax officer
   { path: "/gmca", roles: ["ASSESSOR"], render: () => <GmcaOverview /> },
-  { path: "/gmca/queue", roles: ["ASSESSOR"], render: (_p, q) => <QueuePage query={q} /> },
-  { path: "/gmca/returns/individual", roles: ["ASSESSOR"], render: (_p, q) => <QueuePage key="ind" query={q} fixedKind="INDIVIDUAL" /> },
-  { path: "/gmca/returns/corporate", roles: ["ASSESSOR"], render: (_p, q) => <QueuePage key="cor" query={q} fixedKind="CORPORATE" /> },
+  { path: "/gmca/queue", roles: ["ASSESSOR"], render: (_p, q) => <QueuePage key={q.get("tab") ?? ""} query={q} /> },
+  { path: "/gmca/returns/individual", roles: ["ASSESSOR"], render: () => <Redirect to="/gmca/queue?tab=individual" /> },
+  { path: "/gmca/returns/corporate", roles: ["ASSESSOR"], render: () => <Redirect to="/gmca/queue?tab=corporate" /> },
+  { path: "/gmca/requests", roles: ["ASSESSOR"], render: () => <Redirect to="/gmca/queue?tab=requests" /> },
   { path: "/gmca/cases/:id", roles: ["ASSESSOR"], render: (p) => <CasePage key={p.id} id={p.id!} /> },
-  { path: "/gmca/requests", roles: ["ASSESSOR"], render: () => <GmcaRequestsPage /> },
   { path: "/gmca/taxpayers", roles: ["ASSESSOR"], render: () => <TaxpayersPage /> },
-  { path: "/gmca/taxpayers/:kind/:id", roles: ["ASSESSOR"], render: (p) => <TaxpayerDetail kind={p.kind!} id={p.id!} /> },
+  { path: "/gmca/taxpayers/:kind/:id", roles: ["ASSESSOR"], render: (p) => <OfficerTaxpayerDetail key={p.id} kind={p.kind!} id={p.id!} /> },
   { path: "/gmca/payments", roles: ["ASSESSOR"], render: () => <GmcaPaymentsPage /> },
+  { path: "/gmca/payments/:id", roles: ["ASSESSOR"], render: (p) => <LiabilityDetail key={p.id} id={p.id!} /> },
   { path: "/gmca/documents", roles: ["ASSESSOR"], render: () => <GmcaDocumentsPage /> },
   { path: "/gmca/reports", roles: STAFF, render: () => <ReportsPage /> },
   { path: "/gmca/notifications", roles: ["ASSESSOR"], render: () => <MessagesPage /> },
@@ -69,8 +70,6 @@ const ROUTES: Route[] = [
   // GMCA administrator
   { path: "/admin", roles: ["ADMIN"], render: () => <AdminOverview /> },
   { path: "/admin/users", roles: ["ADMIN"], render: () => <UsersPage /> },
-  { path: "/admin/taxpayers", roles: ["ADMIN"], render: () => <TaxpayersPage admin /> },
-  { path: "/admin/taxpayers/:kind/:id", roles: ["ADMIN"], render: (p) => <AdminTaxpayerDetail key={p.id} kind={p.kind!} id={p.id!} /> },
   { path: "/admin/tax", roles: ["ADMIN"], render: () => <TaxConfigPage /> },
   { path: "/admin/reliefs", roles: ["ADMIN"], render: () => <ReliefConfigPage /> },
   { path: "/admin/classification", roles: ["ADMIN"], render: () => <ClassificationPage /> },
@@ -78,7 +77,6 @@ const ROUTES: Route[] = [
   { path: "/admin/currency", roles: ["ADMIN"], render: () => <CurrencyPage /> },
   { path: "/admin/integrations", roles: ["ADMIN"], render: () => <IntegrationsPage /> },
   { path: "/admin/audit", roles: ["ADMIN"], render: () => <AuditPage /> },
-  { path: "/admin/monitoring", roles: ["ADMIN"], render: () => <MonitoringPage /> },
   { path: "/admin/notifications", roles: ["ADMIN"], render: () => <MessagesPage /> }
 ];
 

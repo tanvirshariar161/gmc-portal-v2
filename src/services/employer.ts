@@ -1,6 +1,7 @@
 import { audit, nextId, nextReference, notify, ServiceError, type Actor } from "../domain/store";
 import { require, requireOwner } from "../domain/permissions";
-import type { CorporateFinancials, CorporateTaxReturn, Db, Employee, EmployerMonthlyDeclaration, IdentifierType, TaxpayerCategory } from "../domain/types";
+import type { BalanceSheetLine, CorporateFinancials, CorporateTaxReturn, Db, Employee, EmployerMonthlyDeclaration, IdentifierType, Payment, TaxpayerCategory } from "../domain/types";
+import { balanceSheetIssues, checkBalanceSheet } from "./balanceSheet";
 import { activeIncentive, calculateCorporate, healthContribution, monthlyTds, ruleSetForYear, summariseMonthly } from "./calc";
 import { classForCompany, classForTaxpayer } from "./classification";
 import { nowIso, today } from "./clock";
@@ -177,7 +178,29 @@ export function declarationIssues(decl: EmployerMonthlyDeclaration): string[] {
   return issues;
 }
 
-export function submitDeclaration(d: Db, actor: Actor, declId: string) {
+/**
+ * The declaration by pay currency: how much pay is in each currency and how much of the total
+ * due to GMC it accounts for. Amounts due are in the reporting currency.
+ */
+export function declarationByCurrency(decl: EmployerMonthlyDeclaration) {
+  const rows = new Map<string, { currency: string; employees: number; payMinor: number; reportingMinor: number; tdsMinor: number; healthMinor: number; pending: boolean }>();
+  for (const l of decl.lines) {
+    const r = rows.get(l.currency) ?? { currency: l.currency, employees: 0, payMinor: 0, reportingMinor: 0, tdsMinor: 0, healthMinor: 0, pending: false };
+    r.employees += 1;
+    r.payMinor += l.amountMinor;
+    r.reportingMinor += l.conversion?.reportingMinor ?? 0;
+    r.tdsMinor += l.tdsMinor;
+    r.healthMinor += l.healthMinor;
+    r.pending ||= l.conversion?.status === "PENDING";
+    rows.set(l.currency, r);
+  }
+  return [...rows.values()].map((r) => ({ ...r, dueMinor: r.tdsMinor + r.healthMinor })).sort((a, b) => b.dueMinor - a.dueMinor || a.currency.localeCompare(b.currency));
+}
+
+/** Paid in DK Bank before submitting: the bank's transaction reference and an uploaded receipt. */
+export type PaidEvidence = { bankTransactionRef: string; evidenceDocId: string };
+
+export function submitDeclaration(d: Db, actor: Actor, declId: string, paid?: PaidEvidence) {
   const decl = d.monthlyDeclarations.find((x) => x.id === declId);
   if (!decl) throw new ServiceError("Declaration not found.", "NOT_FOUND");
   requireCompany(actor, decl.companyId);
@@ -185,6 +208,12 @@ export function submitDeclaration(d: Db, actor: Actor, declId: string) {
   recalcDeclaration(d, decl);
   const issues = declarationIssues(decl);
   if (issues.length) throw new ServiceError(issues[0]!);
+  if (paid) {
+    if (decl.calculation!.balanceMinor <= 0) throw new ServiceError("Nothing is due for this month, so there is no payment to evidence.");
+    if (!paid.bankTransactionRef.trim()) throw new ServiceError("Enter the DK Bank transaction reference of your payment.");
+    const doc = d.documents.find((x) => x.id === paid.evidenceDocId);
+    if (!doc || doc.related.kind !== "MONTHLY_DECLARATION" || doc.related.id !== decl.id) throw new ServiceError("Upload the DK Bank payment receipt.");
+  }
   const now = nowIso();
   decl.submissionStatus = "SUBMITTED";
   decl.submittedAt = now;
@@ -197,6 +226,13 @@ export function submitDeclaration(d: Db, actor: Actor, declId: string) {
     const liability = { id: nextId(d, "LIA"), reference: nextReference(d, "LIA", decl.period.slice(0, 4)), owner, source: "MONTHLY_DECLARATION" as const, sourceId: decl.id, description: `TDS & health contributions · ${decl.period}`, amountMinor: total, currency: d.config.reportingCurrency, paidMinor: 0, createdAt: now };
     d.liabilities.push(liability);
     decl.liabilityId = liability.id;
+    if (paid) {
+      // Counted as paid now; GMCA checks the receipt against DK Bank later.
+      const p: Payment = { id: nextId(d, "PAY"), intentReference: paid.bankTransactionRef.trim(), liabilityId: liability.id, amountMinor: total, currency: liability.currency, status: "SUCCESS", bankTransactionRef: paid.bankTransactionRef.trim(), initiatedBy: actor.id, initiatedAt: now, settledAt: now, method: "EVIDENCE", evidenceDocId: paid.evidenceDocId, simulated: true };
+      d.payments.push(p);
+      liability.paidMinor = total;
+      audit(d, actor, "PAYMENT_EVIDENCE_UPLOADED", "Payment", p.id, `Paid in DK Bank before submitting (${p.bankTransactionRef}); receipt uploaded for GMCA to verify`);
+    }
   }
   audit(d, actor, "DECLARATION_SUBMITTED", "EmployerMonthlyDeclaration", decl.id, `Monthly declaration ${decl.reference} submitted for ${decl.lines.length} employees`);
   notify(d, { owner }, "Monthly declaration submitted", `${decl.reference} for ${decl.period} was received.`, `/company/payroll/${decl.period}`);
@@ -229,7 +265,7 @@ export function ensureCorporateDraft(d: Db, actor: Actor, companyId: string, yea
   return r;
 }
 
-export function saveCorporateDraft(d: Db, actor: Actor, id: string, patch: { financials?: CorporateFinancials; auditedFsDocIds?: string[]; fixedAssetDocIds?: string[]; declarationAccepted?: boolean }) {
+export function saveCorporateDraft(d: Db, actor: Actor, id: string, patch: { financials?: CorporateFinancials; balanceSheet?: BalanceSheetLine[]; auditedFsDocIds?: string[]; fixedAssetDocIds?: string[]; declarationAccepted?: boolean }) {
   const r = getCorporate(d, id);
   requireCompany(actor, r.companyId);
   if (r.submissionStatus !== "DRAFT") throw new ServiceError("This return has been submitted and is locked.", "CONFLICT");
@@ -239,6 +275,10 @@ export function saveCorporateDraft(d: Db, actor: Actor, id: string, patch: { fin
     if (f.revenueMinor < 0 || f.otherIncomeMinor < 0 || f.expensesMinor < 0) throw new ServiceError("Revenue, other income and expenses can't be negative.");
     r.financials = f;
   }
+  if (patch.balanceSheet) {
+    checkBalanceSheet(patch.balanceSheet);
+    r.balanceSheet = patch.balanceSheet;
+  }
   if (patch.auditedFsDocIds) r.auditedFsDocIds = patch.auditedFsDocIds;
   if (patch.fixedAssetDocIds) r.fixedAssetDocIds = patch.fixedAssetDocIds;
   if (patch.declarationAccepted !== undefined) r.declarationAccepted = patch.declarationAccepted;
@@ -247,12 +287,13 @@ export function saveCorporateDraft(d: Db, actor: Actor, id: string, patch: { fin
   return r;
 }
 
-export function corporateIssues(r: CorporateTaxReturn): { step: string; message: string }[] {
+export function corporateIssues(d: Db, r: CorporateTaxReturn): { step: string; message: string }[] {
   const issues: { step: string; message: string }[] = [];
   if (r.financials.revenueMinor <= 0) issues.push({ step: "financials", message: "Enter the company's revenue for the year." });
   r.financials.adjustments.forEach((a, i) => {
     if (!a.label.trim()) issues.push({ step: "financials", message: `Adjustment ${i + 1}: describe the adjustment.` });
   });
+  for (const message of balanceSheetIssues(ruleSetForYear(d.ruleSets, r.year), r.balanceSheet ?? [])) issues.push({ step: "assets", message });
   if (!r.auditedFsDocIds.length) issues.push({ step: "documents", message: "Upload the audited financial statements." });
   if (!r.fixedAssetDocIds.length) issues.push({ step: "documents", message: "Upload the fixed asset report." });
   if (!r.declarationAccepted) issues.push({ step: "review", message: "Confirm the declaration before you submit." });
@@ -264,7 +305,7 @@ export function submitCorporate(d: Db, actor: Actor, id: string) {
   requireCompany(actor, r.companyId);
   if (r.submissionStatus !== "DRAFT") throw new ServiceError("This return was already submitted.", "CONFLICT");
   recalcCorporate(d, r);
-  const issues = corporateIssues(r);
+  const issues = corporateIssues(d, r);
   if (issues.length) throw new ServiceError(issues[0]!.message);
   const now = nowIso();
   const owner = companyOwner(r.companyId);

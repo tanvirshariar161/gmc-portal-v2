@@ -26,15 +26,15 @@ export default {
         rev: { bg: v("rev-bg"), line: v("rev-line"), fg: v("rev-fg") },
         act: { bg: v("act-bg"), line: v("act-line"), fg: v("act-fg") },
         rej: { bg: v("rej-bg"), line: v("rej-line"), fg: v("rej-fg") },
-        ember: v("ember")
+        ember: v("ember"),
+        thead: { DEFAULT: v("table-head"), fg: v("table-head-fg") }
       },
       fontFamily: {
         sans: ['"Roboto"', "Arial", "system-ui", "sans-serif"],
         serif: ['"Lora"', "Georgia", '"Times New Roman"', "serif"]
       },
-      maxWidth: { page: "80rem" },
+      maxWidth: { page: "96rem" },
       boxShadow: {
-        primary: "0 10px 15px -3px rgb(56 109 53 / 0.2), 0 4px 6px -4px rgb(56 109 53 / 0.2)",
         pop: "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a"
       }
     }

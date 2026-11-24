@@ -24,7 +24,7 @@ export function Stepper({ steps, current, onSelect }: { steps: Step[]; current: 
             <span
               className={cn(
                 "grid size-11 place-items-center rounded-full border-2 text-base font-medium transition-colors",
-                state === "current" && "border-primary bg-primary text-white ring-[6px] ring-[rgb(56_109_53_/_0.25)]",
+                state === "current" && "border-primary bg-primary text-white ring-[6px] ring-[rgb(130_48_60_/_0.2)]",
                 state === "done" && "border-primary bg-primary text-white",
                 state === "upcoming" && "border-line bg-surface text-fg-2"
               )}

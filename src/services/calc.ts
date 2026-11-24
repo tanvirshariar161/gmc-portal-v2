@@ -8,7 +8,7 @@ import { describeRate, resolveTaxpayerClass } from "./classification";
  */
 
 export const DEMO_ASSUMPTION = "A calculation, not a formal assessment. GMCA assesses every return.";
-export const RULE_SOURCES = "Individual bands from the GMC Income Tax Act 2025 and the monthly TDS table from GMCA's TDS note. Reliefs, health contribution and other values are demo configuration.";
+export const RULE_SOURCES = "Individual bands from the GMC Income Tax Act 2025 and the monthly TDS table from GMCA's TDS note. Reliefs, health contribution and other values are set by GMCA administrators.";
 
 export function progressiveTax(amount: Minor, bands: Band[]): Minor {
   let tax = 0;
@@ -20,7 +20,7 @@ export function progressiveTax(amount: Minor, bands: Band[]): Minor {
   return roundHalfUp(tax);
 }
 
-/** Monthly TDS brackets are inclusive at the top: ≤1,000 is 0%, >1,000 and ≤3,000 is 2%, and so on. */
+/** Monthly TDS brackets are inclusive at the top: up to Nu 100,000 is 0%, over Nu 100,000 up to Nu 300,000 is 2%, and so on. */
 /** Band-by-band working for the "Your tax" table. */
 export function bandBreakdown(amount: Minor, bands: Band[]) {
   return bands.map((b) => {
@@ -71,7 +71,7 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
       warnings.push(`${s.description || "An income source"} in ${s.currency} has no configured exchange rate yet, so it is left out of the totals.`);
       continue;
     }
-    const note = s.currency === reportingCurrency ? undefined : `${formatAmount(s.amountMinor, s.currency)} at ${formatRate(conv.rate!, s.currency, reportingCurrency)} (${conv.isDemoRate ? "demo rate" : conv.source}, ${conv.rateDate})`;
+    const note = s.currency === reportingCurrency ? undefined : `${formatAmount(s.amountMinor, s.currency)} at ${formatRate(conv.rate!, s.currency, reportingCurrency)} (${conv.source}, ${conv.rateDate})`;
     const foreign = cls.incomeScope === "GMC_SOURCE" && rules.taxItems.find((i) => i.key === s.category && i.kind === "INCOME")?.origin === "FOREIGN";
     lines.push({ key: `src-${s.id}`, label: `${foreign ? "Foreign-source" : s.classification === "EXEMPT" ? "Exempt" : "Additional"} income · ${s.description || s.category}`, amountMinor: conv.reportingMinor, note });
     if (foreign) outOfScope += conv.reportingMinor;
@@ -146,7 +146,7 @@ export function monthlyTds(reportingMinor: Minor, rules: TaxRuleSet, cls: Taxpay
     const rate = band?.ratePct ?? 0;
     return { tdsMinor: pct(reportingMinor, rate), note: `${rate}% on the whole month (GMCA TDS table)` };
   }
-  return { tdsMinor: progressiveTax(reportingMinor, rules.tdsBands), note: "Progressive monthly bands (demo)" };
+  return { tdsMinor: progressiveTax(reportingMinor, rules.tdsBands), note: "Progressive monthly bands" };
 }
 
 export function healthContribution(reportingMinor: Minor, rules: TaxRuleSet, category: "CITIZEN" | "FOREIGN"): Minor {

@@ -84,8 +84,8 @@ export const treatmentMeta = (value: TaxTreatment) => TREATMENTS.find((t) => t.v
 export const KIND_LABEL: Record<TaxItemKind, { plural: string; singular: string; description: string }> = {
   INCOME: { plural: "Income", singular: "income item", description: "Types of income and whether they are charged. Individual items are the categories taxpayers choose from when they add an income source." },
   EXPENSE: { plural: "Expenses", singular: "expense", description: "Business expenses and how much of each is deductible from accounting profit." },
-  ASSET: { plural: "Assets", singular: "asset class", description: "Classes of business assets and the capital allowance given in place of accounting depreciation." },
-  LIABILITY: { plural: "Liabilities", singular: "liability", description: "Business liabilities: provisions deducted only when paid, and borrowings whose interest is deductible." }
+  ASSET: { plural: "Assets", singular: "asset class", description: "Asset classes taxpayers choose from when they declare assets and investments in a return. Business assets get a capital allowance in place of accounting depreciation." },
+  LIABILITY: { plural: "Liabilities", singular: "liability", description: "Liabilities taxpayers choose from when they declare them in a return. For businesses: provisions are deducted only when paid, and interest on borrowings is deductible." }
 };
 
 export const DIFFERENCE_LABEL: Record<BookTaxDifference, string> = { NONE: "No book–tax difference", PERMANENT: "Permanent difference", TEMPORARY: "Temporary difference (deferred tax)" };

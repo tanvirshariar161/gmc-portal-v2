@@ -4,34 +4,38 @@
 
 /* GMC tokens — values from immigration.gmc.bt (docs/design-reference/tokens.css). Square corners everywhere except circles. */
 :root {
-  --bg: #fdfdfd;
+  --bg: #f8f6f1;
   --surface: #ffffff;
-  --sunk: #f7f8f6;
+  --sunk: #f2eee6;
   --fg: #0f0f0f;
   --fg-2: #333333;
   --muted: #444444;
   --placeholder: #767676;
   --line: #c4c4c4;
-  --line-soft: #e6ebe5;
+  --line-soft: #e7e0d0;
   --input: #d0d0d0;
-  --primary: #386d35;
-  --primary-hover: #2d5629;
-  --brand-50: #eaf3ea;
-  --brand-200: #9ec99b;
-  --brand-700: #2d5629;
-  --brand-ink: #386d35;
+  --primary: #82303c;
+  --primary-hover: #682630;
+  --brand-50: #f6ecec;
+  --brand-200: #d9aab1;
+  --brand-700: #682630;
+  --brand-ink: #82303c;
   --ok-bg: #e4f0e4; --ok-line: #6bc495; --ok-fg: #2d5629;
   --rev-bg: #f4f4ea; --rev-line: #c8c895; --rev-fg: #6a6a3a;
   --act-bg: #fdf5e0; --act-line: #d38832; --act-fg: #7a4000;
   --rej-bg: #fdf0ec; --rej-line: #e8a898; --rej-fg: #8a2a1a;
   --ember: #c4562f;
-  --ring: rgb(56 109 53 / 0.5);
+  --ring: rgb(130 48 60 / 0.45);
+  --table-head: #e7e0d0;
+  --table-head-fg: #1f1a14;
+  --nav-taxpayer: #424b76;
+  --nav-staff: #682630;
   --motif: url("/bg-light.svg");
   color-scheme: light;
 }
 
 .dark {
-  --bg: #0a0a0a;
+  --bg: #12100d;
   --surface: #1a1a1a;
   --sunk: #111111;
   --fg: #f0f0f0;
@@ -41,18 +45,23 @@
   --line: #2e2e2e;
   --line-soft: #242424;
   --input: #3a3a3a;
-  --primary: #386d35;
-  --primary-hover: #447f40;
-  --brand-50: #0d1f0c;
-  --brand-200: #2d5629;
-  --brand-700: #6ab367;
-  --brand-ink: #6ab367;
+  --primary: #82303c;
+  --primary-hover: #9a3d4a;
+  --brand-50: #2a1418;
+  --brand-200: #6b2a33;
+  --brand-700: #e0a0aa;
+  --brand-ink: #e0a0aa;
   --ok-bg: #1e3a1c; --ok-line: #2d5629; --ok-fg: #6ab367;
   --rev-bg: #2a2a1a; --rev-line: #6a6a3a; --rev-fg: #d2d29a;
   --act-bg: #2e2200; --act-line: #d38832; --act-fg: #e7a95a;
   --rej-bg: #2e0f0a; --rej-line: #7a2a1a; --rej-fg: #e87a6a;
   --ember: #d06848;
   --motif: url("/bg-dark.svg");
+  --ring: rgb(224 160 170 / 0.5);
+  --table-head: #2b2620;
+  --table-head-fg: #f0ebe2;
+  --nav-taxpayer: #6c76a8;
+  --nav-staff: #9a3d4a;
   color-scheme: dark;
 }
 
@@ -88,7 +97,7 @@
 }
 
 @layer components {
-  .page { @apply mx-auto w-full max-w-page px-4 sm:px-6 lg:px-8; }
+  .page { @apply mx-auto w-full max-w-page px-4 sm:px-6 lg:px-10 xl:px-16 2xl:px-20; }
   .display { @apply font-serif font-normal tracking-[-0.02em] leading-[1.1] text-fg; }
   .panel { @apply border border-line bg-surface; }
   .num { font-variant-numeric: tabular-nums; }

@@ -130,6 +130,8 @@ export type DocumentCategory =
   | "NOTICE_OF_ASSESSMENT"
   | "SUBMISSION_ACK"
   | "PAYMENT_RECEIPT"
+  | "PAYMENT_EVIDENCE"
+  | "ASSET_EVIDENCE"
   | "CORRESPONDENCE";
 
 export type DocumentReviewStatus = "UPLOADED" | "UNDER_REVIEW" | "ACCEPTED" | "REJECTED" | "EVIDENCE_REQUIRED";
@@ -212,6 +214,21 @@ export type IncomeSource = {
   conversion?: Conversion;
   bankStatementDocId?: ID;
   supportingDocIds: ID[];
+  /** DK_BANK: listed by a statement sync from DK Bank (simulated). Otherwise entered by hand with an uploaded statement. */
+  statementSource?: "DK_BANK" | "UPLOAD";
+};
+
+/**
+ * One row of the assets and liabilities declared with a return, valued at the end of the
+ * financial year in the reporting currency. Declared for information: it doesn't change the tax.
+ */
+export type BalanceSheetLine = {
+  id: ID;
+  /** A tax item catalogue key of kind ASSET or LIABILITY. */
+  itemKey: string;
+  description: string;
+  valueMinor: Minor;
+  docIds: ID[];
 };
 
 export type ReliefClaim = {
@@ -233,6 +250,8 @@ export type IndividualTaxReturn = {
   employment: EmploymentIncomeLine[];
   incomeSources: IncomeSource[];
   reliefs: ReliefClaim[];
+  /** Citizens only. Missing on returns filed before the step existed. */
+  balanceSheet?: BalanceSheetLine[];
   declarationAccepted: boolean;
   calculation?: CalculationSnapshot;
   submittedAt?: string;
@@ -289,6 +308,7 @@ export type CorporateTaxReturn = {
   year: number;
   submissionStatus: SubmissionStatus;
   financials: CorporateFinancials;
+  balanceSheet?: BalanceSheetLine[];
   auditedFsDocIds: ID[];
   fixedAssetDocIds: ID[];
   declarationAccepted: boolean;
@@ -375,6 +395,9 @@ export type Payment = {
   initiatedAt: string;
   settledAt?: string;
   receiptDocId?: ID;
+  /** EVIDENCE: paid in DK Bank outside the portal; the payer uploaded proof, which GMCA verifies later. */
+  method?: "DK_BANK" | "EVIDENCE";
+  evidenceDocId?: ID;
   simulated: true;
 };
 
@@ -471,11 +494,13 @@ export type TaxItem = {
   label: string;
   description: string;
   kind: TaxItemKind;
-  /** Income can apply to individuals, businesses or both. Expenses, assets and liabilities are business items. */
+  /** Income, assets and liabilities can apply to individuals, businesses or both. Expenses are business items. */
   appliesTo: TaxRegime | "BOTH";
   treatment: TaxTreatment;
   /** Meaning depends on the treatment: withholding rate, deductible share, annual allowance or interest limit (% of EBITDA). */
   ratePct: number | null;
+  /** Assets only: declared under Investments in a return, with a document per row. */
+  investment?: boolean;
   /** Capital allowance only. */
   allowanceMethod: "STRAIGHT_LINE" | "REDUCING_BALANCE" | null;
   /** Income only: where the income arises. */

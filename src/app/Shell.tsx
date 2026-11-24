@@ -1,5 +1,4 @@
 import {
-  ArrowLeftRight,
   BarChart3,
   Bell,
   BookUser,
@@ -8,18 +7,14 @@ import {
   Coins,
   FileStack,
   FileText,
-  FlaskConical,
-  Gauge,
   History,
   Home,
   Inbox,
   LogOut,
   Menu,
-  MessageSquareWarning,
   Moon,
   PlugZap,
   Receipt,
-  RotateCcw,
   ScrollText,
   Settings2,
   Layers,
@@ -34,13 +29,12 @@ import {
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { ROLE_LABEL } from "../domain/permissions";
-import { getPersistError, resetDemoData } from "../domain/store";
+import { getPersistError } from "../domain/store";
 import type { Role } from "../domain/types";
 import { formatDateTime } from "../lib/format";
 import { cn } from "../lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../shared/ui/dropdown-menu";
 import { isRead, notificationsFor } from "../features/shared/queries";
-import { DEMO_ACCOUNTS } from "../features/auth/demoAccounts";
 import { HOME, Link, navigate, useDb, useLocation, useSession } from "./core";
 
 type NavItem = { to: string; label: string; icon: typeof Home; exact?: boolean; also?: string[] };
@@ -80,11 +74,8 @@ const NAV: Record<Role, NavGroup[]> = {
     {
       items: [
         { to: "/gmca", label: "Overview", icon: Home, exact: true },
-        { to: "/gmca/queue", label: "Assessment work queue", icon: ClipboardList, also: ["/gmca/cases"] },
-        { to: "/gmca/returns/individual", label: "Individual returns", icon: UserRound },
-        { to: "/gmca/returns/corporate", label: "Corporate returns", icon: Building2 },
-        { to: "/gmca/requests", label: "Information requests", icon: MessageSquareWarning },
-        { to: "/gmca/taxpayers", label: "Taxpayers", icon: BookUser },
+        { to: "/gmca/queue", label: "Assessment of returns", icon: ClipboardList, also: ["/gmca/cases"] },
+        { to: "/gmca/taxpayers", label: "Taxpayers & companies", icon: BookUser },
         { to: "/gmca/payments", label: "Payments & liabilities", icon: Coins },
         { to: "/gmca/documents", label: "Documents & correspondence", icon: FileStack },
         { to: "/gmca/reports", label: "Reports", icon: BarChart3 }
@@ -95,8 +86,7 @@ const NAV: Record<Role, NavGroup[]> = {
     {
       items: [
         { to: "/admin", label: "Overview", icon: Home, exact: true },
-        { to: "/admin/users", label: "Users & roles", icon: ShieldCheck },
-        { to: "/admin/taxpayers", label: "Taxpayers & companies", icon: BookUser }
+        { to: "/admin/users", label: "Users & roles", icon: ShieldCheck }
       ]
     },
     {
@@ -107,14 +97,13 @@ const NAV: Record<Role, NavGroup[]> = {
         { to: "/admin/reliefs", label: "Relief configuration", icon: Sparkles },
         { to: "/admin/incentives", label: "Company incentives", icon: Building2 },
         { to: "/admin/currency", label: "Currency & rates", icon: Coins },
-        { to: "/admin/integrations", label: "Integration demo settings", icon: PlugZap }
+        { to: "/admin/integrations", label: "Integration settings", icon: PlugZap }
       ]
     },
     {
       label: "Oversight",
       items: [
         { to: "/admin/audit", label: "Audit log", icon: ScrollText },
-        { to: "/admin/monitoring", label: "System monitoring", icon: Gauge },
         { to: "/gmca/reports", label: "Reports", icon: BarChart3 }
       ]
     }
@@ -183,7 +172,7 @@ function SideNav({ role, path }: { role: Role; path: string }) {
 }
 
 export function Shell({ children }: { children: ReactNode }) {
-  const { user, signIn, signOut } = useSession();
+  const { user, signOut } = useSession();
   const db = useDb();
   const { path } = useLocation();
   const [dark, toggleTheme] = useTheme();
@@ -211,14 +200,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <a href="#main" className="sr-only z-50 bg-primary px-4 py-2 text-white focus:not-sr-only focus:fixed focus:left-4 focus:top-4">
         Skip to content
       </a>
-      <div className="border-b border-act-line bg-act-bg text-act-fg" role="note">
-        <p className="page flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5 text-[13px]">
-          <FlaskConical aria-hidden="true" className="size-3.5" />
-          <span className="font-medium">Demonstration prototype (v2).</span>
-          <span>Fictional data. NDI, Immigration, Corporate Registry and DK Bank are simulated: no real system is contacted.</span>
-        </p>
-      </div>
-      <header className="border-b border-line bg-surface">
+      <header className="border-b-2 bg-surface" style={{ borderBottomColor: user.role === "INDIVIDUAL" ? "var(--nav-taxpayer)" : "var(--nav-staff)" }}>
         <div className="page flex items-center justify-between gap-4 py-3">
           <div className="flex items-center gap-4">
             <button type="button" className="grid size-10 place-items-center border border-line lg:hidden" aria-label="Open menu" aria-expanded={drawer} onClick={() => setDrawer(true)}>
@@ -270,28 +252,6 @@ export function Shell({ children }: { children: ReactNode }) {
                   <span className="text-xs font-normal text-muted">{context}</span>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel className="flex items-center gap-2 text-xs font-normal uppercase tracking-[0.12em] text-act-fg">
-                  <FlaskConical className="size-3.5" /> Demo only: switch role
-                </DropdownMenuLabel>
-                {DEMO_ACCOUNTS.map((a) => (
-                  <DropdownMenuItem key={a.userId} onSelect={() => signIn(a.userId)} className="grid gap-0">
-                    <span className={cn("flex items-center gap-2 text-sm", a.userId === user.id && "font-medium")}>
-                      <ArrowLeftRight className="size-3.5" /> {a.label}
-                    </span>
-                    <span className="pl-5 text-xs text-muted">{db.users.find((u) => u.id === a.userId)?.name}</span>
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuItem
-                  onSelect={() => {
-                    if (window.confirm("Reset all demo data to the seeded state? Everything changed in this browser is lost.")) {
-                      resetDemoData();
-                      navigate(HOME[user.role]);
-                    }
-                  }}
-                >
-                  <RotateCcw className="size-4" /> Reset demo data
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem destructive onSelect={signOut}>
                   <LogOut className="size-4" /> Sign out
                 </DropdownMenuItem>
@@ -331,7 +291,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
-      <footer className="border-t border-line py-8 text-center text-sm text-muted">Gelephu Mindfulness City Authority · Income Tax · Prototype v2 with fictional data. Provisional visual design, not official GMCA branding.</footer>
+      <footer className="border-t border-line py-8 text-center text-sm text-muted">Gelephu Mindfulness City Authority · Income Tax</footer>
     </div>
   );
 }

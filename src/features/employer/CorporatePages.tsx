@@ -1,7 +1,7 @@
 import { ArrowLeft, ArrowRight, Plus, Save, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { navigate, useDocumentTitle, useRun, Link } from "../../app/core";
-import type { CorporateFinancials, CorporateTaxReturn, Db } from "../../domain/types";
+import type { BalanceSheetLine, CorporateFinancials, CorporateTaxReturn, Db } from "../../domain/types";
 import { formatDate, formatDateTime, formatPeriod } from "../../lib/format";
 import { formatMoney, minorToInput, parseAmountInput } from "../../lib/money";
 import { activeIncentive, ruleSetForYear } from "../../services/calc";
@@ -14,8 +14,9 @@ import { Alert } from "../../shared/gmc/Layout";
 import { Stepper } from "../../shared/gmc/Stepper";
 import { DataTable } from "../../shared/gmc/Table";
 import { AssessmentProgress } from "../individual/IndividualPages";
+import { BalanceSheetEditor, BalanceSheetView } from "../shared/BalanceSheet";
 import { Forbidden } from "../shared/TaxpayerShared";
-import { AssessmentBadge, CalcBreakdown, DemoTag, DocLink, KeyValue, PageHeader, PaymentBadge, RecordUpload, Section, SubmissionBadge, userName } from "../shared/ui";
+import { AssessmentBadge, CalcBreakdown, DocLink, KeyValue, PageHeader, PaymentBadge, RecordUpload, Section, SubmissionBadge, userName } from "../shared/ui";
 import { DeclarationsTable, useCompany } from "./EmployerPages";
 
 export function CorporateListPage() {
@@ -63,6 +64,7 @@ export function CorporateListPage() {
 const STEPS = [
   { key: "profile", label: "Company" },
   { key: "financials", label: "Financial information" },
+  { key: "assets", label: "Assets and liabilities" },
   { key: "documents", label: "Documents" },
   { key: "review", label: "Calculation and review" }
 ] as const;
@@ -95,6 +97,7 @@ function CorporateWizard({ db, ret }: { db: Db; ret: CorporateTaxReturn }) {
     expenses: minorToInput(ret.financials.expensesMinor || null),
     adjustments: ret.financials.adjustments.map((a) => ({ id: a.id, label: a.label, amount: minorToInput(a.amountMinor) }))
   }));
+  const [holdings, setHoldings] = useState<BalanceSheetLine[]>(ret.balanceSheet ?? []);
   const [confirming, setConfirming] = useState(false);
   const owner = { kind: "COMPANY" as const, id: company.id };
   const parseSigned = (v: string) => (v.trim().startsWith("-") ? -(parseAmountInput(v.trim().slice(1)) ?? NaN) : parseAmountInput(v) ?? NaN);
@@ -107,14 +110,14 @@ function CorporateWizard({ db, ret }: { db: Db; ret: CorporateTaxReturn }) {
     return { revenueMinor, otherIncomeMinor, expensesMinor, adjustments };
   };
   const current = financials();
-  const dirty = JSON.stringify(current) !== JSON.stringify(ret.financials);
-  const save = (msg?: string) => (current ? run((d, a) => saveCorporateDraft(d, a, ret.id, { financials: current }), msg) : undefined);
+  const dirty = JSON.stringify(current) !== JSON.stringify(ret.financials) || JSON.stringify(holdings) !== JSON.stringify(ret.balanceSheet ?? []);
+  const save = (msg?: string, balanceSheet = holdings) => (current ? run((d, a) => saveCorporateDraft(d, a, ret.id, { financials: current, balanceSheet }), msg) : undefined);
   const go = (k: StepKey) => {
     if (dirty && current) save();
     setConfirming(false);
     setStep(k);
   };
-  const issues = corporateIssues(ret);
+  const issues = corporateIssues(db, ret);
   const index = STEPS.findIndex((s) => s.key === step);
 
   return (
@@ -125,7 +128,7 @@ function CorporateWizard({ db, ret }: { db: Db; ret: CorporateTaxReturn }) {
       {step === "profile" ? (
         <Section title="Company">
           <div className="panel p-5">
-            <KeyValue rows={[{ label: "Name", value: company.name }, { label: company.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship number" : "UEN", value: company.uen }, { label: "Sector", value: company.sector }, { label: "Financial year", value: `${ret.year} (calendar year, a demo assumption)` }, { label: "Applicable rate", value: inc ? `${inc.ratePct}% approved incentive (${inc.approvalReference})` : (() => { const c = classForCompany(ruleSetForYear(db.ruleSets, ret.year), company.type, ret.year); return `${describeRate(c)} (${c.label})`; })() }]} />
+            <KeyValue rows={[{ label: "Name", value: company.name }, { label: company.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship number" : "UEN", value: company.uen }, { label: "Sector", value: company.sector }, { label: "Financial year", value: `${ret.year} (calendar year)` }, { label: "Applicable rate", value: inc ? `${inc.ratePct}% approved incentive (${inc.approvalReference})` : (() => { const c = classForCompany(ruleSetForYear(db.ruleSets, ret.year), company.type, ret.year); return `${describeRate(c)} (${c.label})`; })() }]} />
           </div>
         </Section>
       ) : null}
@@ -158,6 +161,25 @@ function CorporateWizard({ db, ret }: { db: Db; ret: CorporateTaxReturn }) {
         </Section>
       ) : null}
 
+      {step === "assets" ? (
+        <Section title="Assets and liabilities">
+          <BalanceSheetEditor
+            db={db}
+            rules={ruleSetForYear(db.ruleSets, ret.year)}
+            regime="CORPORATE"
+            year={ret.year}
+            owner={owner}
+            related={{ kind: "CORPORATE_RETURN", id: ret.id }}
+            lines={holdings}
+            setLines={setHoldings}
+            onDocsChanged={(next) => {
+              setHoldings(next);
+              save(undefined, next);
+            }}
+          />
+        </Section>
+      ) : null}
+
       {step === "documents" ? (
         <Section title="Documents">
           <div className="grid gap-6 lg:grid-cols-2">
@@ -169,7 +191,7 @@ function CorporateWizard({ db, ret }: { db: Db; ret: CorporateTaxReturn }) {
 
       {step === "review" ? (
         <div className="grid gap-6">
-          {dirty ? <Alert tone="review">Save your financial information to refresh the calculation.</Alert> : null}
+          {dirty ? <Alert tone="review">Save your changes to refresh the calculation.</Alert> : null}
           <CalcBreakdown snapshot={ret.calculation} title="Corporate tax calculation" />
           {issues.filter((i) => i.step !== "review").length ? (
             <Alert tone="action" title="Before you can submit">
@@ -244,7 +266,6 @@ export function CorporateReturnDetail({ db, ret, justSubmitted, staffView }: { d
         <SubmissionBadge status={ret.submissionStatus} />
         {a ? <AssessmentBadge status={a.status} /> : null}
         {l ? <PaymentBadge status={liabilityStatus(db, l)} /> : null}
-        {ret.demoSeeded ? <DemoTag>Seeded history</DemoTag> : null}
       </div>
       <AssessmentProgress a={a} />
       {open.map((r) => (
@@ -271,6 +292,9 @@ export function CorporateReturnDetail({ db, ret, justSubmitted, staffView }: { d
         <div className="panel p-5">
           <KeyValue rows={[{ label: "Revenue", value: formatMoney(ret.financials.revenueMinor) }, { label: "Other income", value: formatMoney(ret.financials.otherIncomeMinor) }, { label: "Expenses claimed", value: formatMoney(ret.financials.expensesMinor) }, ...ret.financials.adjustments.map((x) => ({ label: `Adjustment · ${x.label}`, value: formatMoney(x.amountMinor) }))]} />
         </div>
+      </Section>
+      <Section title="Assets and liabilities as submitted">
+        <BalanceSheetView db={db} rules={db.ruleSets.find((r) => r.id === ret.calculation?.ruleSetId) ?? ruleSetForYear(db.ruleSets, ret.year)} lines={ret.balanceSheet ?? []} />
       </Section>
       <CalcBreakdown snapshot={ret.calculation} title="Calculation submitted with the return" />
     </>

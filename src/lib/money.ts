@@ -1,5 +1,5 @@
 /**
- * Amounts are integers in the currency's minor unit (cents for USD). Never floats.
+ * Amounts are integers in the currency's minor unit (chhertum for BTN, cents for USD). Never floats.
  * Rounding (half-up to the minor unit) is a demo assumption pending GMCA confirmation.
  */
 export type Minor = number;
@@ -23,38 +23,42 @@ export function parseAmountInput(raw: string): Minor | null {
 
 export function minorToInput(minor: Minor | null | undefined): string {
   if (minor === null || minor === undefined) return "";
-  return (minor / 100).toFixed(2);
+  return minor % 100 === 0 ? String(minor / 100) : (minor / 100).toFixed(2);
 }
 
-const plain = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cache = new Map<string, Intl.NumberFormat>();
-function formatter(code: string) {
-  let f = cache.get(code);
+function formatter(code: string, digits: number) {
+  const key = `${code}:${digits}`;
+  let f = cache.get(key);
   if (!f) {
     try {
-      f = new Intl.NumberFormat("en-US", { style: "currency", currency: code, currencyDisplay: "code", minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      f = new Intl.NumberFormat("en-US", { style: "currency", currency: code, currencyDisplay: "code", minimumFractionDigits: digits, maximumFractionDigits: digits });
     } catch {
-      f = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      f = new Intl.NumberFormat("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
     }
-    cache.set(code, f);
+    cache.set(key, f);
   }
   return f;
 }
 
-const SYMBOL: Record<string, string> = { USD: "$" };
+const SYMBOL: Record<string, string> = { BTN: "Nu\u00a0", USD: "$" };
 
-/** "$1,234.50" for USD, "BTN 1,234.50" for other currencies; negative amounts use a true minus sign. */
+/**
+ * "Nu 1,234" for BTN, "$1,234" for USD, "SGD 1,234" for other currencies. Whole amounts drop
+ * the decimals so figures stay easy to read; anything with a fraction shows two decimals.
+ * Negative amounts use a true minus sign.
+ */
 export function formatAmount(minor: Minor, code: string): string {
+  const digits = Math.abs(minor) % 100 === 0 ? 0 : 2;
   const sym = SYMBOL[code];
-  if (sym) {
-    const s = `${sym}${plain.format(Math.abs(minor) / 100)}`;
-    return minor < 0 ? `−${s}` : s;
-  }
-  const text = formatter(code).format(Math.abs(minor) / 100).replace(/ /g, " ");
+  const major = Math.abs(minor) / 100;
+  const text = sym
+    ? `${sym}${major.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`
+    : formatter(code, digits).format(major).replace(/\u00a0/g, " ");
   return minor < 0 ? `−${text}` : text;
 }
 
-let reportingCode = "USD";
+let reportingCode = "BTN";
 /** The shell sets this from configuration so <Money> needs no prop drilling. */
 export function setReportingCurrency(code: string) {
   reportingCode = code;
@@ -63,7 +67,7 @@ export function formatMoney(minor: Minor, code = reportingCode): string {
   return formatAmount(minor, code);
 }
 
-/** Human rate: "1 SGD = 0.75 USD", or for weak currencies "1 USD = 96.35 BTN". */
+/** Human rate: "1 USD = 100 BTN", or for currencies worth less than the reporting one "1 BTN = 33.3333 XYZ". */
 export function formatRate(rate: number, currency: string, reporting: string): string {
   if (rate >= 0.1) return `1 ${currency} = ${Number(rate.toFixed(6))} ${reporting}`;
   return `1 ${reporting} = ${Number((1 / rate).toFixed(4))} ${currency}`;

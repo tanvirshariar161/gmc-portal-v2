@@ -44,16 +44,6 @@ export function Section({ title, description, actions, children, className }: { 
   );
 }
 
-/** Marks seeded data and simulated integrations so nothing reads as official. */
-export function DemoTag({ children = "Demo", title }: { children?: ReactNode; title?: string }) {
-  return (
-    <span title={title} className="inline-flex items-center gap-1 whitespace-nowrap border border-act-line bg-act-bg px-1.5 py-px text-[11px] font-medium uppercase tracking-[0.08em] text-act-fg">
-      <FlaskConical aria-hidden="true" className="size-3" />
-      {children}
-    </span>
-  );
-}
-
 // ---------- Status badges: separate badges for separate processes ----------
 
 const SUBMISSION: Record<SubmissionStatus, [StatusFamily, string]> = { DRAFT: ["neutral", "Draft"], SUBMITTED: ["approved", "Submitted"] };
@@ -137,7 +127,7 @@ export function ConversionView({ conversion, compact }: { conversion?: Conversio
       <span className="num">{formatAmount(conversion.reportingMinor!, conversion.reportingCurrency)}</span>
       <span className="num text-xs text-muted">
         {original} at {formatRate(conversion.rate!, conversion.currency, conversion.reportingCurrency)}
-        {compact ? "" : ` · rate of ${formatDate(conversion.rateDate, "short")}`} {conversion.isDemoRate ? <span className="font-medium text-act-fg">· demo rate</span> : null}
+        {compact ? "" : ` · rate of ${formatDate(conversion.rateDate, "short")}`}
       </span>
     </span>
   );
@@ -175,7 +165,7 @@ export function CalcBreakdown({ snapshot, title = "Calculation" }: { snapshot?: 
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
         <h3 className="font-medium">{title}</h3>
         <span className="flex items-center gap-2 text-xs text-muted">
-          Rule set {snapshot.ruleSetVersion} <DemoTag>Prototype</DemoTag>
+          Rule set {snapshot.ruleSetVersion}
         </span>
       </div>
       <table className="w-full text-sm">

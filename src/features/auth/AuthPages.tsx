@@ -1,16 +1,19 @@
-import { ArrowRight, Building2, FlaskConical, Globe2, IdCard } from "lucide-react";
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { ArrowRight, Building2, CalendarClock, CheckCircle2, FileCheck2, Globe2, IdCard, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Link, navigate, useDb, useDocumentTitle, useRunPublic, useSession } from "../../app/core";
 import { Logo } from "../../app/Shell";
-import { ROLE_LABEL } from "../../domain/permissions";
-import { resetDemoData } from "../../domain/store";
+import { ServiceError } from "../../domain/store";
+import type { User } from "../../domain/types";
 import { formatDate } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import type { ImmigrationRecord, LookupResult, NdiRecord, RegistryRecord } from "../../services/integrations";
 import { lookupCitizen, lookupCompany, lookupForeign, registerCitizen, registerCompany, registerForeign } from "../../services/registration";
 import { Button } from "../../shared/gmc/Button";
-import { Alert } from "../../shared/gmc/Layout";
+import { Alert, Eyebrow, IconTile } from "../../shared/gmc/Layout";
+import { DemoQr } from "../../shared/gmc/Qr";
+import { checkCredentials, needsNdiApproval, SAMPLE_PASSWORD, startNdiSignIn } from "../../services/auth";
+import type { NdiSignInRequest } from "../../services/auth";
 import { RadioGroup, TextField } from "../../shared/gmc/Form";
 import { Stepper } from "../../shared/gmc/Stepper";
 import { KeyValue } from "../shared/ui";
@@ -19,87 +22,250 @@ import { DEMO_ACCOUNTS } from "./demoAccounts";
 function PublicFrame({ children, wide }: { children: ReactNode; wide?: boolean }) {
   return (
     <div className="flex min-h-screen flex-col">
-      <div className="border-b border-act-line bg-act-bg text-act-fg">
-        <p className="page flex flex-wrap items-center gap-2 py-1.5 text-[13px]">
-          <FlaskConical aria-hidden="true" className="size-3.5" /> <span className="font-medium">Demonstration prototype (v2).</span> Fictional data; all external systems are simulated.
-        </p>
-      </div>
-      <header className="page py-5">
-        <Link to="/login" aria-label="Sign in">
-          <Logo dark={document.documentElement.classList.contains("dark")} />
-        </Link>
+      <header className="border-b-2 bg-surface" style={{ borderBottomColor: "var(--nav-taxpayer)" }}>
+        <div className="page py-4">
+          <Link to="/login" aria-label="Sign in">
+            <Logo dark={document.documentElement.classList.contains("dark")} />
+          </Link>
+        </div>
       </header>
-      <main id="main" className={cn("page flex-1 pb-20 pt-4", wide ? "" : "max-w-3xl")}>
+      <main id="main" className={cn("page flex-1 pb-20 pt-10", wide ? "" : "max-w-3xl")}>
         {children}
+      </main>
+      <footer className="border-t border-line py-8 text-center text-sm text-muted">Gelephu Mindfulness City Authority · Income Tax</footer>
+    </div>
+  );
+}
+
+type Pending = { user: User; request: NdiSignInRequest };
+
+/**
+ * Sign-in layout under review: "V2" is the split screen (brand panel left, sign-in right), "V1" the
+ * earlier single-column page. Remove the unused one once the choice is final.
+ */
+const SIGN_IN_LAYOUT: "V1" | "V2" = "V2";
+
+/** Sign in with email and password. Individual taxpayers then approve the sign-in in the Bhutan NDI app. */
+export function LoginPage() {
+  useDocumentTitle("Sign in");
+  const [pending, setPending] = useState<Pending | null>(null);
+  const form = pending ? <NdiApproval pending={pending} onCancel={() => setPending(null)} onRetry={(request) => setPending({ ...pending, request })} /> : <CredentialsForm onNdi={setPending} />;
+  return SIGN_IN_LAYOUT === "V2" ? <SignInV2 form={form} /> : <SignInV1 form={form} />;
+}
+
+function SignInIntro({ onDark }: { onDark?: boolean }) {
+  return (
+    <>
+      <Eyebrow tone={onDark ? "onGreen" : "brand"} className={onDark ? "text-[#fffbf2] [&>span]:bg-[#fffbf2]" : undefined}>GMCA Income Tax</Eyebrow>
+      <h1 className={cn("display text-[2.5rem] sm:text-[3.5rem]", onDark && "text-white")}>Your income tax, in one place.</h1>
+      <p className={cn("max-w-xl text-[15px] leading-relaxed", onDark ? "text-white/80" : "text-muted")}>
+        File your return, see what your employer has reported, pay and get your notices from the Gelephu Mindfulness City Authority. Most of your return is filled in for you.
+      </p>
+      <ul className="grid gap-4 pt-2 sm:grid-cols-3">
+        {[
+          { icon: FileCheck2, text: "Returns pre-filled from employer declarations" },
+          { icon: CalendarClock, text: "Every deadline with a countdown" },
+          { icon: ShieldCheck, text: "Taxpayer sign-in confirmed with Bhutan NDI" }
+        ].map((item) => (
+          <li key={item.text} className={cn("flex items-start gap-3 text-sm", onDark ? "text-white/85" : "text-fg-2")}>
+            <IconTile icon={item.icon} size={28} tone={onDark ? "onGreen" : "brand"} />
+            {item.text}
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+/** V1: logo bar, intro on the left, sign-in panel on the right. */
+function SignInV1({ form }: { form: ReactNode }) {
+  return (
+    <PublicFrame wide>
+      <div className="grid items-start gap-12 lg:grid-cols-[1.1fr_0.9fr] lg:gap-20">
+        <section className="grid gap-6 lg:pt-6">
+          <SignInIntro />
+        </section>
+        {form}
+      </div>
+    </PublicFrame>
+  );
+}
+
+/** V2: brand panel with the GMC pattern on the left, intro card at its foot; sign-in on a light panel to the right. */
+function SignInV2({ form }: { form: ReactNode }) {
+  return (
+    <div className="grid min-h-screen lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <section className="relative isolate flex flex-col gap-12 overflow-hidden bg-[#772a35] px-6 py-10 sm:px-12 lg:px-[5.5%] lg:py-14">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[url('/bg-light.svg')] bg-cover bg-fixed bg-center opacity-[0.05]" />
+        <img src="/logo1.svg" alt="Gelephu Mindfulness City" className="h-14 w-auto self-start sm:h-20" />
+        <div className="my-auto grid max-w-[42rem] gap-5">
+          <SignInIntro onDark />
+        </div>
+      </section>
+      <main id="main" className="grid place-items-center bg-[#fdf9f3] px-4 py-12 sm:px-10 dark:bg-bg">
+        <div className="w-full max-w-md [&>section]:border-0 [&>section]:bg-transparent [&>section]:p-0 sm:[&>section]:p-0">{form}</div>
       </main>
     </div>
   );
 }
 
-export function LoginPage() {
-  useDocumentTitle("Sign in");
-  const { signIn } = useSession();
+function CredentialsForm({ onNdi }: { onNdi: (p: Pending) => void }) {
   const db = useDb();
-  const others = db.users.filter((u) => u.status === "ACTIVE" && !DEMO_ACCOUNTS.some((a) => a.userId === u.id));
+  const { signIn } = useSession();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string>();
+  const accounts = DEMO_ACCOUNTS.map((a) => ({ label: a.label as string, user: db.users.find((u) => u.id === a.userId) })).filter((a): a is { label: string; user: User } => !!a.user && a.user.status === "ACTIVE");
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    setError(undefined);
+    let user: User;
+    try {
+      user = checkCredentials(db, email, password);
+    } catch (err) {
+      setError(err instanceof ServiceError ? err.message : "Sign-in failed. Try again.");
+      return;
+    }
+    if (needsNdiApproval(user)) onNdi({ user, request: startNdiSignIn(db, user) });
+    else signIn(user.id);
+  }
+
   return (
-    <PublicFrame wide>
-      <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <div className="grid content-start gap-8">
-          <div className="grid gap-3">
-            <h1 className="display text-[2.25rem] sm:text-[3rem]">GMCA Income Tax</h1>
-            <p className="max-w-2xl text-[15px] leading-relaxed text-muted">One platform for taxpayers, employers and GMCA officers. Choose a demo account to see the platform from that role. Each account opens its own dashboard and can only reach its own records.</p>
-          </div>
-          <ul className="grid gap-3" aria-label="Demo accounts">
-            {DEMO_ACCOUNTS.map((a) => {
-              const u = db.users.find((x) => x.id === a.userId);
-              if (!u) return null;
-              return (
-                <li key={a.userId}>
-                  <button type="button" onClick={() => signIn(u.id)} className="group grid w-full gap-1 border border-line bg-surface px-5 py-4 text-left transition-colors hover:border-brand-200 hover:bg-brand-50 sm:grid-cols-[12rem_1fr_auto] sm:items-center sm:gap-6">
-                    <span className="grid">
-                      <span className="font-medium text-fg">{a.label}</span>
-                      <span className="text-sm text-muted">{u.name}</span>
-                    </span>
-                    <span className="text-sm text-fg-2">{a.story}</span>
-                    <ArrowRight aria-hidden="true" className="hidden size-4 text-line transition group-hover:translate-x-0.5 group-hover:text-brand-ink sm:block" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          {others.length ? (
-            <details className="border border-line bg-surface px-5 py-3">
-              <summary className="cursor-pointer text-sm font-medium">More seeded accounts ({others.length})</summary>
-              <ul className="mt-3 grid gap-1">
-                {others.map((u) => (
-                  <li key={u.id}>
-                    <button type="button" onClick={() => signIn(u.id)} className="flex w-full items-center justify-between gap-4 px-2 py-2 text-left text-sm hover:bg-sunk">
-                      <span>{u.name}</span>
-                      <span className="text-muted">{ROLE_LABEL[u.role]}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          ) : null}
-        </div>
-        <aside className="grid content-start gap-4">
-          <div className="grid gap-3 border border-line bg-surface p-5">
-            <h2 className="font-serif text-xl">New to GMCA Income Tax?</h2>
-            <p className="text-sm text-muted">Register as an individual taxpayer or a company. Identity is checked against simulated NDI, Immigration and Corporate Registry records.</p>
-            <Button onClick={() => navigate("/register")}>Register</Button>
-          </div>
-          <div className="grid gap-2 border border-line bg-sunk p-5 text-sm text-muted">
-            <p>
-              <span className="font-medium text-fg">Demo sign-in.</span> Production sign-in (SSO, NDI login) is an open question for GMCA. Role switching exists only in this demo.
-            </p>
-            <button type="button" className="w-fit text-brand-ink underline underline-offset-4" onClick={() => window.confirm("Reset all demo data to the seeded state? Changes made in this browser are lost.") && resetDemoData()}>
-              Reset demo data
-            </button>
-          </div>
-        </aside>
+    <section aria-labelledby="signin" className="panel grid gap-5 p-6 sm:p-10">
+      <h2 id="signin" className="font-serif text-[1.875rem] leading-tight">
+        Sign in
+      </h2>
+      <p className="text-[15px] leading-relaxed text-muted">Use your GMC account. Taxpayers confirm each sign-in in the Bhutan NDI app, so a password alone can't open your tax records.</p>
+      {error ? (
+        <Alert tone="rejected" title="Couldn't sign you in">
+          {error}
+        </Alert>
+      ) : null}
+      <form className="grid gap-4" onSubmit={submit} noValidate>
+        <TextField label="Email" type="email" required autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <TextField label="Password" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <Button size="lg" type="submit">
+          Sign in <ArrowRight />
+        </Button>
+      </form>
+      <p className="text-sm text-muted">
+        New to the portal?{" "}
+        <Link to="/register" className="font-medium text-brand-ink underline underline-offset-4">
+          Register for a tax account
+        </Link>
+      </p>
+      <details className="border-t border-line-soft pt-4 text-sm">
+        <summary className="cursor-pointer font-medium">Sample accounts (password {SAMPLE_PASSWORD})</summary>
+        <ul className="mt-3 grid gap-1.5">
+          {accounts.map((a) => (
+            <li key={a.user.id}>
+              <button
+                type="button"
+                className="text-left text-brand-ink underline-offset-4 hover:underline"
+                onClick={() => {
+                  setEmail(a.user.email);
+                  setPassword(SAMPLE_PASSWORD);
+                  setError(undefined);
+                }}
+              >
+                {a.user.name}
+              </button>{" "}
+              <span className="text-muted">· {a.label}</span>
+            </li>
+          ))}
+        </ul>
+      </details>
+      <p className="text-xs leading-relaxed text-muted">Sessions end when you sign out. Tax information is confidential under section 6 of the Income Tax Act 2025.</p>
+    </section>
+  );
+}
+
+type NdiPhase = "WAITING" | "SCANNED" | "APPROVED";
+
+/**
+ * Second step for individual taxpayers: scan the code with the Bhutan NDI app and approve.
+ * The simulated wallet scans within a second and approves about a second later; the account
+ * opens only once the approval arrives.
+ */
+function NdiApproval({ pending, onCancel, onRetry }: { pending: Pending; onCancel: () => void; onRetry: (r: NdiSignInRequest) => void }) {
+  const db = useDb();
+  const { signIn } = useSession();
+  const { user, request } = pending;
+  const [phase, setPhase] = useState<NdiPhase>("WAITING");
+  const taxpayer = db.taxpayers.find((t) => t.id === user.taxpayerId);
+
+  useEffect(() => {
+    setPhase("WAITING");
+    if (request.status === "UNAVAILABLE") return;
+    const scan = window.setTimeout(() => setPhase("SCANNED"), 900);
+    if (request.status === "NO_MATCH") return () => window.clearTimeout(scan);
+    const approve = window.setTimeout(() => setPhase("APPROVED"), 1600);
+    const done = window.setTimeout(() => signIn(user.id), 2100);
+    return () => [scan, approve, done].forEach((t) => window.clearTimeout(t));
+  }, [request, user.id, signIn]);
+
+  const declined = request.status === "NO_MATCH" && phase === "SCANNED";
+  return (
+    <section aria-labelledby="ndi" className="panel grid gap-6 p-6 sm:p-10">
+      <div className="grid gap-2">
+        <p className="text-sm text-muted">Step 2 of 2</p>
+        <h2 id="ndi" className="font-serif text-[1.875rem] leading-tight">
+          Approve this sign-in with Bhutan NDI
+        </h2>
+        <p className="text-[15px] leading-relaxed text-muted">
+          Your password is right. To keep your income private, confirm it's you in the Bhutan NDI app on your phone.
+        </p>
       </div>
-    </PublicFrame>
+      {request.status === "UNAVAILABLE" ? (
+        <Alert tone="rejected" title="Bhutan NDI isn't answering" action={<Button size="sm" variant="secondary" onClick={() => onRetry(startNdiSignIn(db, user))}>Try again</Button>}>
+          We couldn't create a sign-in request. Try again in a few minutes. Reference {request.reference}.
+        </Alert>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-[auto_1fr] sm:items-center">
+          <div className={cn("relative grid w-fit place-items-center border border-line bg-surface p-3", phase !== "WAITING" && "opacity-40")}>
+            <DemoQr seed={request.reference} className="size-48" label="Bhutan NDI sign-in code" />
+            {phase === "APPROVED" ? <CheckCircle2 aria-hidden="true" className="absolute size-16 text-ok-fg" /> : null}
+          </div>
+          <ol className="grid gap-3 text-sm text-fg-2">
+            {["Open the Bhutan NDI app on your phone.", "Tap Scan and point the camera at this code.", "Check the request is from GMCA Income Tax, then tap Approve."].map((t, i) => (
+              <li key={t} className="flex gap-3">
+                <span className="grid size-6 shrink-0 place-items-center rounded-full bg-brand-50 text-xs font-medium text-brand-ink">{i + 1}</span>
+                {t}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+      {request.status !== "UNAVAILABLE" ? (
+        <div role="status" aria-live="polite">
+          {declined ? (
+            <Alert tone="rejected" title="This NDI wallet doesn't match the account" action={<Button size="sm" variant="secondary" onClick={() => onRetry(startNdiSignIn(db, user))}>Show a new code</Button>}>
+              The identity in the wallet that scanned the code isn't {user.name}. Nobody has been signed in.
+            </Alert>
+          ) : phase === "APPROVED" ? (
+            <Alert tone="approved" title="Approved in Bhutan NDI">Signing you in…</Alert>
+          ) : (
+            <p className="flex items-center gap-3 border border-line bg-sunk px-4 py-3 text-sm">
+              <span className="spinner text-brand-ink" aria-hidden="true" />
+              {phase === "SCANNED" ? "Code scanned. Approve the request on your phone." : "Waiting for you to scan the code…"}
+            </p>
+          )}
+        </div>
+      ) : null}
+      <div className="grid gap-1 border-t border-line-soft pt-4 text-sm">
+        <p>
+          Signing in as <span className="font-medium">{user.name}</span>
+          {taxpayer ? <span className="text-muted"> · {taxpayer.tin}</span> : null}
+        </p>
+        <p className="text-xs text-muted">Request {request.reference}. The code works once and expires after 5 minutes.</p>
+      </div>
+      <div>
+        <Button variant="secondary" onClick={onCancel}>
+          Use a different account
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -141,19 +307,16 @@ export function RegisterChooser() {
   );
 }
 
-function SimulatedNotice({ system, samples }: { system: string; samples: ReactNode }) {
-  return (
-    <Alert tone="action" title={`Simulated ${system}`}>
-      No real registry is contacted. Use a seeded demo record: {samples}
-    </Alert>
-  );
+/** Sample record for trying registration: a quiet hint, not a banner. */
+function SimulatedNotice({ samples }: { system: string; samples: ReactNode }) {
+  return <p className="text-sm text-muted">Sample record: {samples}</p>;
 }
 
 function LookupFailure({ result, system }: { result: LookupResult<unknown>; system: string }) {
   if (result.status === "MATCH") return null;
   return (
     <Alert tone="rejected" title={result.status === "NO_MATCH" ? "No matching record" : `${system} is unavailable`}>
-      {result.status === "NO_MATCH" ? `The simulated ${system} has no record with these details. Check them and try again.` : "The simulator is set to unavailable by a GMCA administrator. Try again later."} Reference {result.reference}.
+      {result.status === "NO_MATCH" ? `The ${system} has no record with these details. Check them and try again.` : "The service isn't answering. Try again later."} Reference {result.reference}.
     </Alert>
   );
 }
@@ -217,14 +380,14 @@ export function RegisterCitizen() {
             <TextField label="Date of birth" type="date" required value={dob} onChange={(e) => setDob(e.target.value)} />
             {result ? <LookupFailure result={result} system="NDI" /> : null}
             <div>
-              <Button type="submit">Verify with NDI (simulated)</Button>
+              <Button type="submit">Verify with NDI</Button>
             </div>
           </form>
         ) : null}
         {step === "confirm" && result?.status === "MATCH" ? (
           <div className="grid gap-5">
-            <Alert tone="approved" title="Identity verified (simulated NDI)">
-              Reference {result.reference}. These details come from the demo record and can't be edited here.
+            <Alert tone="approved" title="Identity verified with NDI">
+              Reference {result.reference}. These details come from NDI and can't be edited here.
             </Alert>
             <div className="panel p-5">
               <KeyValue rows={[{ label: "Full name", value: result.record.fullName }, { label: "Citizenship ID", value: result.record.cid }, { label: "Date of birth", value: formatDate(result.record.dateOfBirth) }, { label: "Dzongkhag", value: result.record.dzongkhag }]} />
@@ -284,13 +447,13 @@ export function RegisterForeign() {
             <TextField label={type === "WORK_PERMIT" ? "Work permit number" : "Passport number"} required value={identifier} onChange={(e) => setIdentifier(e.target.value.toUpperCase())} />
             {result ? <LookupFailure result={result} system="Immigration System" /> : null}
             <div>
-              <Button type="submit">Verify with Immigration (simulated)</Button>
+              <Button type="submit">Verify with Immigration</Button>
             </div>
           </form>
         ) : null}
         {step === "confirm" && result?.status === "MATCH" ? (
           <div className="grid gap-5">
-            <Alert tone="approved" title="Identity and employment found (simulated Immigration System)">
+            <Alert tone="approved" title="Identity and employment found in the Immigration System">
               Reference {result.reference}.
             </Alert>
             <div className="panel p-5">
@@ -364,13 +527,13 @@ export function RegisterCompany() {
             <TextField label="UEN or sole proprietorship number" required value={uen} onChange={(e) => setUen(e.target.value.toUpperCase())} hint="Issued by the Corporate Registration Office. Validation rules for sole proprietorship numbers are still to be confirmed." />
             {result ? <LookupFailure result={result} system="Corporate Registration System" /> : null}
             <div>
-              <Button type="submit">Look up (simulated)</Button>
+              <Button type="submit">Look up</Button>
             </div>
           </form>
         ) : null}
         {step === "confirm" && result?.status === "MATCH" ? (
           <div className="grid gap-5">
-            <Alert tone="approved" title="Company found (simulated registry)">
+            <Alert tone="approved" title="Company found in the Corporate Registry">
               Reference {result.reference}.
             </Alert>
             <div className="panel p-5">

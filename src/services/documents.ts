@@ -19,6 +19,8 @@ export const CATEGORY_LABEL: Record<DocumentCategory, string> = {
   NOTICE_OF_ASSESSMENT: "Notice of Assessment",
   SUBMISSION_ACK: "Acknowledgement Certificate",
   PAYMENT_RECEIPT: "Payment Acknowledgement",
+  PAYMENT_EVIDENCE: "Payment evidence",
+  ASSET_EVIDENCE: "Investment document",
   CORRESPONDENCE: "Official correspondence"
 };
 

@@ -13,10 +13,11 @@ export const PERMISSIONS = {
   "payments.pay": "Pay own liabilities",
   "assessment.view": "View submitted returns centrally",
   "assessment.act": "Review and assess assigned returns",
+  "taxpayers.manage": "Manage taxpayer and company records, including tax residency",
   "admin.users": "Manage user accounts and roles",
   "admin.config": "Configure tax rules, reliefs, currencies",
   "admin.incentives": "Record approved company incentives",
-  "admin.integrations": "Change demo integration behaviour and reset data",
+  "admin.integrations": "Change integration behaviour and reset data",
   "audit.view": "View the audit log",
   "reports.view": "View reports and dashboards"
 } as const;
@@ -26,15 +27,15 @@ export type Permission = keyof typeof PERMISSIONS;
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   INDIVIDUAL: ["individual.file", "payments.pay"],
   EMPLOYER: ["employer.manage", "payments.pay"],
-  ASSESSOR: ["assessment.view", "assessment.act", "reports.view"],
+  ASSESSOR: ["assessment.view", "assessment.act", "taxpayers.manage", "reports.view"],
   ADMIN: ["admin.users", "admin.config", "admin.incentives", "admin.integrations", "audit.view", "reports.view"]
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
   INDIVIDUAL: "Individual taxpayer",
-  EMPLOYER: "Employer / company representative",
-  ASSESSOR: "GMCA tax officer / assessor",
-  ADMIN: "GMCA system administrator"
+  EMPLOYER: "Representatives",
+  ASSESSOR: "GMCA Tax Officer",
+  ADMIN: "GMCA Administrator"
 };
 
 export function hasPermission(actor: Actor, p: Permission) {

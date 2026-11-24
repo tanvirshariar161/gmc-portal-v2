@@ -164,10 +164,10 @@ function ClassSection({ regime, draft, base, onClasses }: { regime: TaxRegime; d
         <table className="w-full text-sm">
           <caption className="sr-only">Class each kind of taxpayer resolves to in {previewYear}</caption>
           <thead>
-            <tr className="border-b border-line text-left text-muted">
-              <th scope="col" className="py-2 pr-3 font-medium">Taxpayer</th>
-              <th scope="col" className="py-2 pr-3 font-medium">Class</th>
-              <th scope="col" className="py-2 font-medium">Rate</th>
+            <tr className="bg-thead text-left text-thead-fg">
+              <th scope="col" className="px-3 py-2 font-medium">Taxpayer</th>
+              <th scope="col" className="px-3 py-2 font-medium">Class</th>
+              <th scope="col" className="px-3 py-2 font-medium">Rate</th>
             </tr>
           </thead>
           <tbody>
@@ -175,9 +175,9 @@ function ClassSection({ regime, draft, base, onClasses }: { regime: TaxRegime; d
               const hit = findTaxpayerClass(draft, p, previewYear);
               return (
                 <tr key={profileLabel(p)} className="border-b border-line-soft">
-                  <td className="py-2 pr-3">{profileLabel(p)}</td>
-                  <td className="py-2 pr-3">{hit ? hit.label || "New class" : <StatusBadge tone="rejected">No class: can't publish</StatusBadge>}</td>
-                  <td className="py-2">{hit ? describeRate(hit) : "—"}</td>
+                  <td className="px-3 py-2">{profileLabel(p)}</td>
+                  <td className="px-3 py-2">{hit ? hit.label || "New class" : <StatusBadge tone="rejected">No class: can't publish</StatusBadge>}</td>
+                  <td className="px-3 py-2">{hit ? describeRate(hit) : "—"}</td>
                 </tr>
               );
             })}
@@ -234,13 +234,14 @@ function ItemRow({ item, isNew, onChange, onRemove }: { item: TaxItem; isNew: bo
         <summary className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3">
           <span className="min-w-0 flex-1 font-medium">{item.label || "New item"}</span>
           <span className="text-sm text-fg-2">{describeItemTreatment(item)}</span>
-          {item.kind === "INCOME" ? <StatusBadge tone="neutral">{APPLIES_LABEL[item.appliesTo]}</StatusBadge> : null}
+          {item.kind !== "EXPENSE" ? <StatusBadge tone="neutral">{APPLIES_LABEL[item.appliesTo]}</StatusBadge> : null}
+          {item.investment ? <StatusBadge tone="neutral">Investment</StatusBadge> : null}
           {!item.enabled ? <StatusBadge tone="neutral">Off</StatusBadge> : null}
         </summary>
         <div className="grid gap-4 border-t border-line px-5 py-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <TextField label="Name" value={item.label} onChange={(e) => onChange({ label: e.target.value })} hint={`Code ${item.key}`} />
-            {item.kind === "INCOME" ? (
+            {item.kind !== "EXPENSE" ? (
               <SelectField label="Applies to" value={item.appliesTo} onChange={(e) => onChange({ appliesTo: e.target.value as TaxItem["appliesTo"] })}>
                 {(Object.keys(APPLIES_LABEL) as TaxItem["appliesTo"][]).map((k) => <option key={k} value={k}>{APPLIES_LABEL[k]}</option>)}
               </SelectField>
@@ -272,6 +273,11 @@ function ItemRow({ item, isNew, onChange, onRemove }: { item: TaxItem; isNew: bo
             <Checkbox checked={item.enabled} onChange={(v) => onChange({ enabled: v })}>
               {item.kind === "INCOME" ? "Available to choose" : "In use"}
             </Checkbox>
+            {item.kind === "ASSET" ? (
+              <Checkbox checked={!!item.investment} onChange={(v) => onChange({ investment: v || undefined })}>
+                Investment: declared under Investments, with a document per row
+              </Checkbox>
+            ) : null}
             {isNew ? <Button size="sm" variant="ghost" onClick={onRemove}><Trash2 /> Remove</Button> : null}
           </div>
         </div>

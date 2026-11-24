@@ -3,20 +3,19 @@ import { useState } from "react";
 import { Link, useActor, useDb, useDocumentTitle, useRun, useToast } from "../../app/core";
 import { PERMISSIONS, ROLE_LABEL, ROLE_PERMISSIONS } from "../../domain/permissions";
 import { resetDemoData } from "../../domain/store";
-import type { Band, BankMode, Db, IntegrationMode, ReliefRule, ResidencyStatus, Role, TaxRuleSet } from "../../domain/types";
+import type { Band, BankMode, Db, IntegrationMode, ReliefRule, Role, TaxRuleSet } from "../../domain/types";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { formatMoney, formatRate, minorToInput, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
-import { addCurrency, addExchangeRate, createStaffUser, publishRuleSet, recordIncentive, revokeIncentive, setBankMode, setCurrencyEnabled, setIntegrationMode, setPlatformSetting, setResidency, setStaffRole, setUserStatus } from "../../services/admin";
+import { addCurrency, addExchangeRate, createStaffUser, publishRuleSet, recordIncentive, revokeIncentive, setBankMode, setCurrencyEnabled, setIntegrationMode, setPlatformSetting, setStaffRole, setUserStatus } from "../../services/admin";
 import { ruleSetForYear } from "../../services/calc";
 import { today } from "../../services/clock";
 import { Button } from "../../shared/gmc/Button";
 import { Checkbox, SelectField, TextArea, TextField } from "../../shared/gmc/Form";
 import { Alert, StatusBadge } from "../../shared/gmc/Layout";
 import { DataTable } from "../../shared/gmc/Table";
-import { TaxpayerDetail } from "../gmca/GmcaPages";
 import { ClassificationEditor } from "./ClassificationEditor";
-import { DemoTag, KeyValue, MetricStrip, PageHeader, Section, ownerName, userName } from "../shared/ui";
+import { KeyValue, MetricStrip, PageHeader, Section, ownerName, userName } from "../shared/ui";
 
 // ---------- Overview ----------
 
@@ -28,20 +27,20 @@ export function AdminOverview() {
   const forced = Object.entries(db.config.integrations).filter(([k, v]) => k !== "pendingResolvesTo" && v !== "SEEDED" && v !== "CHOOSE");
   return (
     <>
-      <PageHeader title="System administration" lead="Accounts, tax configuration and demo settings. Administrators don't assess returns and can't change a submitted declaration." />
-      {forced.length ? <Alert tone="action" title="A simulator is not in its default mode">{forced.map(([k, v]) => `${k}: ${String(v).toLowerCase().replace(/_/g, " ")}`).join(" · ")}. <Link className="underline" to="/admin/integrations">Change</Link></Alert> : null}
+      <PageHeader title="System administration" lead="Accounts, tax configuration and integration settings. Administrators don't assess returns and can't change a submitted declaration." />
+      {forced.length ? <Alert tone="action" title="An integration is not in its default mode">{forced.map(([k, v]) => `${k}: ${String(v).toLowerCase().replace(/_/g, " ")}`).join(" · ")}. <Link className="underline" to="/admin/integrations">Change</Link></Alert> : null}
       <MetricStrip
         items={[
           { label: "User accounts", value: db.users.length, hint: `${db.users.filter((u) => u.status === "DEACTIVATED").length} deactivated` },
           { label: "GMCA officers", value: db.users.filter((u) => u.role === "ASSESSOR").length },
-          { label: "Active rule set", value: active.version, hint: <DemoTag>Demo rules</DemoTag> },
+          { label: "Active rule set", value: active.version },
           { label: "Reporting currency", value: db.config.reportingCurrency, hint: `${db.config.currencies.filter((c) => c.enabled).length} currencies enabled` }
         ]}
       />
       <Section title="Recent configuration changes" actions={<Link to="/admin/audit" className="text-sm text-brand-ink underline-offset-4 hover:underline">Full audit log</Link>}>
         <AuditList db={db} entries={lastConfig} />
       </Section>
-      <Section title="Open questions for GMCA" description="These rules are placeholders in this prototype. Each is configurable so the confirmed answer can be entered without code changes.">
+      <Section title="Open questions for GMCA" description="These rules await GMCA confirmation. Each is configurable so the confirmed answer can be entered without code changes.">
         <ul className="grid gap-x-8 gap-y-2 border border-line bg-surface p-5 text-sm sm:grid-cols-2">
           {["Individual tax bands, thresholds and formula", "Tax-residency definition and foreign-national treatment", "Relief categories, limits, evidence and approval", "TDS formula, health contribution rate and scope", "Reporting currency, rate source, conversion date, rounding", "Corporate schedules, allowable expenses, adjustments", "Filing deadlines, penalties, interest and refunds", "Excess TDS carry-forward", "Officer assignment rules and permission matrix", "DK Bank payment and reconciliation API", "Official certificate and notice formats", "SSO, hosting (on-premises, TashiCell Gelephu preferred)"].map((q) => (
             <li key={q} className="flex gap-2"><span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-act-line" />{q}</li>
@@ -131,12 +130,12 @@ export function UsersPage() {
           </div>
         </form>
       </Section>
-      <Section title="Role permissions" description="Proposed for the prototype. GMCA's permission matrix is an open question. Record-level rules also apply: taxpayers see only their own records, assessors act only on cases assigned to them.">
+      <Section title="Role permissions" description="Proposed. GMCA's permission matrix is an open question. Record-level rules also apply: taxpayers see only their own records, assessors act only on cases assigned to them.">
         <div className="overflow-x-auto border border-line">
           <table className="w-full min-w-[44rem] text-sm">
             <caption className="sr-only">Permissions by role</caption>
             <thead>
-              <tr className="bg-primary text-white">
+              <tr className="bg-thead text-thead-fg">
                 <th scope="col" className="h-10 px-4 text-left font-medium">Permission</th>
                 {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <th key={r} scope="col" className="px-3 text-center font-medium">{ROLE_LABEL[r].split(" / ")[0]!.replace("GMCA ", "")}</th>)}
               </tr>
@@ -156,38 +155,6 @@ export function UsersPage() {
   );
 }
 
-// ---------- Taxpayer detail with residency ----------
-
-export function AdminTaxpayerDetail({ kind, id }: { kind: string; id: string }) {
-  const db = useDb();
-  const run = useRun();
-  const t = kind === "INDIVIDUAL" ? db.taxpayers.find((x) => x.id === id) : undefined;
-  const [status, setStatus] = useState<ResidencyStatus>(t?.residencyStatus ?? "NOT_DETERMINED");
-  const [reason, setReason] = useState("");
-  const slot = t ? (
-    <Section title="Tax residency" description="Recorded by GMCA. It decides whether the configured non-resident treatment applies. Nationality alone must not be used.">
-      <form
-        className="grid max-w-2xl gap-4 border border-line bg-surface p-5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (run((d, a) => setResidency(d, a, t.id, status, reason), "Residency recorded") !== undefined) setReason("");
-        }}
-      >
-        <SelectField label="Residency status" value={status} onChange={(e) => setStatus(e.target.value as ResidencyStatus)}>
-          <option value="NOT_DETERMINED">Not determined</option>
-          <option value="RESIDENT">Resident</option>
-          <option value="NON_RESIDENT">Non-resident</option>
-        </SelectField>
-        <TextArea label="Basis for the determination" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} hint="Recorded in the audit log. GMCA's residency rules are still to be confirmed." />
-        <div><Button type="submit">Record residency</Button></div>
-      </form>
-    </Section>
-  ) : (
-    <span />
-  );
-  return <TaxpayerDetail kind={kind} id={id} adminSlot={slot} />;
-}
-
 // ---------- Tax configuration ----------
 
 function BandsEditor({ label, bands, onChange }: { label: string; bands: Band[]; onChange: (b: Band[]) => void }) {
@@ -196,7 +163,7 @@ function BandsEditor({ label, bands, onChange }: { label: string; bands: Band[];
       <legend className="mb-2 text-sm font-medium">{label}</legend>
       {bands.map((b, i) => (
         <div key={i} className="grid grid-cols-[1fr_1fr_7rem_auto] items-end gap-2">
-          <TextField label={i === 0 ? "From" : <span className="sr-only">From</span>} value={minorToInput(b.fromMinor)} readOnly />
+          <TextField label={i === 0 ? "From" : <span className="sr-only">From</span>} value={minorToInput(b.fromMinor)} readOnly inputClassName="read-only:bg-surface read-only:text-fg" />
           <TextField
             label={i === 0 ? "Up to" : <span className="sr-only">Up to</span>}
             inputMode="decimal"
@@ -222,7 +189,7 @@ function BandsEditor({ label, bands, onChange }: { label: string; bands: Band[];
         className="w-fit"
         onClick={() => {
           const last = bands[bands.length - 1]!;
-          const split = last.fromMinor + 1_000_000;
+          const split = last.fromMinor + 100_000_000;
           onChange([...bands.slice(0, -1), { ...last, toMinor: split }, { fromMinor: split, toMinor: null, ratePct: last.ratePct }]);
         }}
       >
@@ -236,14 +203,47 @@ export function TaxConfigPage() {
   useDocumentTitle("Tax configuration");
   const db = useDb();
   const [year, setYear] = useState(db.config.currentFilingYear);
+  const [yearInput, setYearInput] = useState(String(db.config.currentFilingYear));
+  const configured = [...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => a - b);
   const active = ruleSetForYear(db.ruleSets, year);
+  const inherited = active.effectiveFromYear !== year;
+  const yearError = !/^\d{4}$/.test(yearInput) || Number(yearInput) < MIN_RULE_YEAR || Number(yearInput) > MAX_RULE_YEAR ? `Enter a year from ${MIN_RULE_YEAR} to ${MAX_RULE_YEAR}` : undefined;
+  const pick = (y: number) => {
+    setYear(y);
+    setYearInput(String(y));
+  };
   return (
     <>
-      <PageHeader title="Tax configuration" lead="Rates and rules used by the calculation engine. Publishing creates a new version; submitted returns keep the version they were calculated with." />
-      <SelectField label="Rules for financial year" value={String(year)} onChange={(e) => setYear(Number(e.target.value))} className="w-56">
-        {[...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => b - a).map((y) => <option key={y} value={y}>{y}</option>)}
-      </SelectField>
-      <RuleSetEditor key={active.id} db={db} base={active} sections={["rates"]} />
+      <PageHeader title="Tax configuration" lead="Rates and rules used by the calculation engine, set per financial year. Rules apply from their year until a later year has its own. Publishing creates a new version; submitted returns keep the version they were calculated with." />
+      <div className="grid gap-4 border border-line bg-surface p-5">
+        <form
+          className="flex flex-wrap items-end gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!yearError) pick(Number(yearInput));
+          }}
+        >
+          <TextField label="Financial year" inputMode="numeric" className="w-44" value={yearInput} error={yearInput !== String(year) ? yearError : undefined} onChange={(e) => setYearInput(e.target.value.replace(/\D/g, "").slice(0, 4))} hint="Any year, for example 2027" />
+          <Button type="submit" variant="secondary" disabled={!!yearError || yearInput === String(year)}>Show rules</Button>
+        </form>
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-muted">Years with their own rules:</span>
+          {configured.map((y) => (
+            <button key={y} type="button" onClick={() => pick(y)} aria-pressed={y === year} className={cn("border px-3 py-1", y === year ? "border-primary bg-brand-50 font-medium text-brand-ink" : "border-line hover:bg-sunk")}>
+              {y}
+            </button>
+          ))}
+          <button type="button" onClick={() => pick(Math.max(...configured) + 1)} className="inline-flex items-center gap-1 border border-dashed border-line px-3 py-1 text-brand-ink hover:bg-sunk">
+            <Plus className="size-3.5" /> {Math.max(...configured) + 1}
+          </button>
+        </div>
+      </div>
+      {inherited ? (
+        <Alert tone="review" title={`${year} has no rules of its own yet`}>
+          Returns for {year} use the {active.effectiveFromYear} rules (version {active.version}). Change anything below and publish to set rules for {year}; earlier years keep theirs.
+        </Alert>
+      ) : null}
+      <RuleSetEditor key={`${active.id}-${year}`} db={db} base={active} year={year} sections={["rates"]} />
       <PlatformSettings db={db} />
       <Section title="Version history">
         <DataTable caption="Rule set versions" rows={db.ruleSets.filter((r) => r.effectiveFromYear === year)} rowKey={(r) => r.id} columns={[{ key: "v", header: "Version", cell: (r) => r.version }, { key: "s", header: "Status", cell: (r) => <StatusBadge tone={r.status === "ACTIVE" ? "approved" : "neutral"}>{r.status === "ACTIVE" ? "Active" : "Retired"}</StatusBadge> }, { key: "b", header: "Published by", cell: (r) => userName(db, r.createdBy) }, { key: "d", header: "Published", cell: (r) => formatDateTime(r.createdAt) }, { key: "u", header: "Used by", align: "right", cell: (r) => `${db.individualReturns.filter((x) => x.calculation?.ruleSetId === r.id && x.submissionStatus === "SUBMITTED").length + db.corporateReturns.filter((x) => x.calculation?.ruleSetId === r.id && x.submissionStatus === "SUBMITTED").length} returns` }]} />
@@ -252,22 +252,28 @@ export function TaxConfigPage() {
   );
 }
 
-function RuleSetEditor({ db, base, sections }: { db: Db; base: TaxRuleSet; sections: ("rates" | "reliefs" | "classification")[] }) {
+const MIN_RULE_YEAR = 2025;
+const MAX_RULE_YEAR = 2100;
+
+/** Edits a copy of `base`. With `year` set to a later year than the base, publishing creates that year's first rule set. */
+function RuleSetEditor({ db, base, sections, year = base.effectiveFromYear }: { db: Db; base: TaxRuleSet; sections: ("rates" | "reliefs" | "classification")[]; year?: number }) {
   const run = useRun();
   const [draft, setDraft] = useState<TaxRuleSet>(() => structuredClone(base));
   const [reason, setReason] = useState("");
   const set = (patch: Partial<TaxRuleSet>) => setDraft({ ...draft, ...patch });
-  const changed = JSON.stringify(draft) !== JSON.stringify(base);
+  const newYear = year !== base.effectiveFromYear;
+  const changed = newYear || JSON.stringify(draft) !== JSON.stringify(base);
   return (
     <form
       className="grid gap-8"
       onSubmit={(e) => {
         e.preventDefault();
         const { id: _i, version: _v, createdAt: _c, createdBy: _b, status: _s, ...changes } = draft;
-        if (run((d, a) => publishRuleSet(d, a, base.id, changes, reason), "New rule set version published")) setReason("");
+        const forYear = newYear ? { effectiveFromYear: year, label: draft.label.replace(/\(\d{4}\)$/, `(${year})`) } : {};
+        if (run((d, a) => publishRuleSet(d, a, base.id, { ...changes, ...forYear }, reason), newYear ? `Rules for ${year} published` : "New rule set version published")) setReason("");
       }}
     >
-      <p className="text-sm text-muted">Editing from version <strong>{base.version}</strong>.</p>
+      <p className="text-sm text-muted">{newYear ? <>Starting from version <strong>{base.version}</strong> ({base.effectiveFromYear}). Publishing sets the rules for <strong>{year}</strong>.</> : <>Editing from version <strong>{base.version}</strong>.</>}</p>
       {sections.includes("rates") ? (
         <>
           <Section title="Individual income tax">
@@ -310,7 +316,7 @@ function RuleSetEditor({ db, base, sections }: { db: Db; base: TaxRuleSet; secti
       <div className="grid max-w-2xl gap-3 border border-primary bg-surface p-5">
         <TextArea label="Reason for the change" required rows={2} value={reason} onChange={(e) => setReason(e.target.value)} hint="Saved in the audit log with the new version." />
         <div className="flex flex-wrap gap-3">
-          <Button type="submit" disabled={!changed}>Publish new version</Button>
+          <Button type="submit" disabled={!changed}>{newYear ? `Publish rules for ${year}` : "Publish new version"}</Button>
           <Button variant="secondary" disabled={!changed} onClick={() => setDraft(structuredClone(base))}><RotateCcw /> Discard changes</Button>
         </div>
       </div>
@@ -347,7 +353,7 @@ export function ReliefConfigPage() {
   const active = ruleSetForYear(db.ruleSets, year);
   return (
     <>
-      <PageHeader title="Relief configuration" lead="Relief categories, demo limits and evidence examples. Income categories are now part of the tax item catalogue under Tax classification. Changes publish a new rule set version." />
+      <PageHeader title="Relief configuration" lead="Relief categories, limits and evidence examples. Income categories are now part of the tax item catalogue under Tax classification. Changes publish a new rule set version." />
       <SelectField label="Rules for financial year" value={String(year)} onChange={(e) => setYear(Number(e.target.value))} className="w-56">
         {[...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => b - a).map((y) => <option key={y} value={y}>{y}</option>)}
       </SelectField>
@@ -464,13 +470,12 @@ export function CurrencyPage() {
   const db = useDb();
   const run = useRun();
   const [newCur, setNewCur] = useState({ code: "", name: "" });
-  const [rate, setRate] = useState({ currency: db.config.currencies.find((c) => c.code !== db.config.reportingCurrency)?.code ?? "", rate: "", quote: "PER_REPORTING" as "PER_UNIT" | "PER_REPORTING", effectiveDate: today(), source: "Demo rate" });
+  const [rate, setRate] = useState({ currency: db.config.currencies.find((c) => c.code !== db.config.reportingCurrency)?.code ?? "", rate: "", quote: "PER_REPORTING" as "PER_UNIT" | "PER_REPORTING", effectiveDate: today(), source: "Illustrative rate" });
   const stored = rate.quote === "PER_UNIT" ? Number(rate.rate) : 1 / Number(rate.rate);
   const rates = [...db.config.exchangeRates].sort((a, b) => a.currency.localeCompare(b.currency) || b.effectiveDate.localeCompare(a.effectiveDate));
   return (
     <>
       <PageHeader title="Currency & exchange rates" lead={`Every amount keeps its original currency and is converted to the reporting currency (${db.config.reportingCurrency}) with the latest rate on or before the conversion date.`} />
-      <Alert tone="action" title="Demo rates only">The rates below are illustrative. They are not official, live or GMCA-approved. The reporting currency, rate source, conversion date and rounding still need GMCA confirmation.</Alert>
       <Section title="Currencies">
         <DataTable
           caption="Currencies"
@@ -490,7 +495,7 @@ export function CurrencyPage() {
         </form>
       </Section>
       <Section title="Exchange rates">
-        <DataTable caption="Exchange rates" rows={rates} rowKey={(r) => r.id} columns={[{ key: "c", header: "Currency", cell: (r) => r.currency }, { key: "r", header: "Rate", cell: (r) => formatRate(r.rate, r.currency, db.config.reportingCurrency) }, { key: "d", header: "Effective from", cell: (r) => formatDate(r.effectiveDate) }, { key: "s", header: "Source", cell: (r) => <span className="flex items-center gap-2">{r.source} {r.isDemo ? <DemoTag>Demo rate</DemoTag> : <StatusBadge tone="approved">GMCA</StatusBadge>}</span> }]} />
+        <DataTable caption="Exchange rates" rows={rates} rowKey={(r) => r.id} columns={[{ key: "c", header: "Currency", cell: (r) => r.currency }, { key: "r", header: "Rate", cell: (r) => formatRate(r.rate, r.currency, db.config.reportingCurrency) }, { key: "d", header: "Effective from", cell: (r) => formatDate(r.effectiveDate) }, { key: "s", header: "Source", cell: (r) => <span className="flex items-center gap-2">{r.source} {r.isDemo ? null : <StatusBadge tone="approved">GMCA</StatusBadge>}</span> }]} />
         <form className="grid max-w-5xl gap-4 border border-line bg-surface p-5 sm:grid-cols-5" onSubmit={(e) => { e.preventDefault(); run((d, a) => addExchangeRate(d, a, { currency: rate.currency, rate: Number.isFinite(stored) ? stored : 0, effectiveDate: rate.effectiveDate, source: rate.source }), "Rate added"); }}>
           <SelectField label="Currency" value={rate.currency} onChange={(e) => setRate({ ...rate, currency: e.target.value })}>
             {db.config.currencies.filter((c) => c.code !== db.config.reportingCurrency).map((c) => <option key={c.code} value={c.code}>{c.code}</option>)}
@@ -515,7 +520,7 @@ export function CurrencyPage() {
 const MODE_LABEL: Record<IntegrationMode, string> = { SEEDED: "Use seeded records", FORCE_NO_MATCH: "Always no match", FORCE_UNAVAILABLE: "Unavailable" };
 
 export function IntegrationsPage() {
-  useDocumentTitle("Integration demo settings");
+  useDocumentTitle("Integration settings");
   const db = useDb();
   const run = useRun();
   const toast = useToast();
@@ -527,13 +532,13 @@ export function IntegrationsPage() {
   ];
   return (
     <>
-      <PageHeader title="Integration demo settings" lead="All external systems are simulated behind adapter interfaces. Change how each simulator answers to demonstrate success, no-match, unavailable, pending and failed outcomes." />
-      <Section title="Verification simulators">
+      <PageHeader title="Integration settings" lead="Each external system sits behind an adapter. Choose how it answers to show success, no-match, unavailable, pending and failed outcomes." />
+      <Section title="Verification services">
         <div className="grid gap-3">
           {systems.map((s) => (
             <div key={s.key} className="grid gap-3 border border-line bg-surface p-5 sm:grid-cols-[minmax(0,1fr)_16rem] sm:items-center">
               <div className="grid gap-0.5">
-                <p className="flex items-center gap-2 font-medium">{s.name} <DemoTag>Simulated</DemoTag></p>
+                <p className="flex items-center gap-2 font-medium">{s.name}</p>
                 <p className="text-sm text-muted">{s.purpose}</p>
                 <p className="num text-xs text-muted">{s.interface}</p>
               </div>
@@ -544,7 +549,7 @@ export function IntegrationsPage() {
           ))}
           <div className="grid gap-3 border border-line bg-surface p-5 sm:grid-cols-[minmax(0,1fr)_16rem_16rem] sm:items-end">
             <div className="grid gap-0.5">
-              <p className="flex items-center gap-2 font-medium">DK Bank <DemoTag>Simulated</DemoTag></p>
+              <p className="flex items-center gap-2 font-medium">DK Bank</p>
               <p className="text-sm text-muted">Payment initiation and confirmation</p>
               <p className="num text-xs text-muted">PaymentProvider → SeededDkBankProvider</p>
             </div>
@@ -563,9 +568,9 @@ export function IntegrationsPage() {
       </Section>
       <Section title="Seeded data">
         <div className="flex flex-wrap items-center justify-between gap-4 border border-line bg-surface p-5">
-          <p className="max-w-xl text-sm text-muted">Restore every account, return, payment and setting to the seeded demo state. Data lives in this browser only. Seeded at {formatDateTime(db.seededAt)}.</p>
-          <Button variant="danger" onClick={() => { if (window.confirm("Reset all demo data? Everything changed in this browser is lost and you'll be signed out.")) { resetDemoData(); toast("ok", "Demo data reset"); } }}>
-            <RotateCcw /> Reset demo data
+          <p className="max-w-xl text-sm text-muted">Restore every account, return, payment and setting to the seeded state. Data lives in this browser only. Seeded at {formatDateTime(db.seededAt)}.</p>
+          <Button variant="danger" onClick={() => { if (window.confirm("Reset all data? Everything changed in this browser is lost and you'll be signed out.")) { resetDemoData(); toast("ok", "Data reset"); } }}>
+            <RotateCcw /> Reset data
           </Button>
         </div>
       </Section>
@@ -596,52 +601,6 @@ export function AuditPage() {
       </div>
       <p className="text-sm text-muted" role="status">{rows.length} entries{rows.length > 300 ? ", showing the latest 300" : ""}</p>
       <AuditList db={db} entries={rows.slice(0, 300)} />
-    </>
-  );
-}
-
-// ---------- Monitoring ----------
-
-export function MonitoringPage() {
-  useDocumentTitle("System monitoring");
-  const db = useDb();
-  let bytes = 0;
-  try {
-    bytes = (localStorage.getItem("gmca-v2:db") ?? "").length * 2;
-  } catch {
-    /* unavailable */
-  }
-  const since = new Date(Date.now() - 7 * 86400_000).toISOString();
-  const recent = db.audit.filter((e) => e.at >= since);
-  const byAction = Object.entries(recent.reduce<Record<string, number>>((m, e) => ({ ...m, [e.action]: (m[e.action] ?? 0) + 1 }), {})).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const failed = db.integrationEvents.filter((e) => ["NO_MATCH", "UNAVAILABLE", "FAILURE"].includes(e.outcome)).length;
-  return (
-    <>
-      <PageHeader title="System monitoring" lead="Activity in this demo environment. Production monitoring depends on the hosting decision (on-premises in Bhutan, TashiCell Gelephu preferred)." />
-      <MetricStrip
-        items={[
-          { label: "Actions in the last 7 days", value: recent.length },
-          { label: "Integration calls", value: db.integrationEvents.length, hint: `${failed} no-match, unavailable or failed` },
-          { label: "Documents stored", value: db.documents.length },
-          { label: "Browser storage used", value: `${(bytes / 1024 / 1024).toFixed(2)} MB`, hint: "Of about 5 MB available" }
-        ]}
-      />
-      <Section title="Most frequent actions this week">
-        <div className="grid gap-2 border border-line bg-surface p-5">
-          {byAction.length === 0 ? <p className="text-sm text-muted">No activity in the last 7 days.</p> : null}
-          {byAction.map(([action, n]) => (
-            <div key={action} className="grid grid-cols-[14rem_1fr_3rem] items-center gap-3 text-sm">
-              <span className="num truncate text-xs">{action}</span>
-              <span className="h-2 bg-sunk"><span className="block h-full bg-primary" style={{ width: `${(n / byAction[0]![1]) * 100}%` }} /></span>
-              <span className="num text-right">{n}</span>
-            </div>
-          ))}
-        </div>
-      </Section>
-      <Section title="Recent sign-ins">
-        <DataTable caption="Sign-ins" rows={db.users.filter((u) => u.lastSignInAt).sort((a, b) => (b.lastSignInAt ?? "").localeCompare(a.lastSignInAt ?? "")).slice(0, 10)} rowKey={(u) => u.id} columns={[{ key: "n", header: "User", cell: (u) => u.name }, { key: "r", header: "Role", cell: (u) => ROLE_LABEL[u.role] }, { key: "t", header: "Last sign-in", cell: (u) => formatDateTime(u.lastSignInAt) }]} />
-      </Section>
-      <p className="text-sm text-muted">Outstanding liabilities: {formatMoney(db.liabilities.reduce((s, l) => s + Math.max(0, l.amountMinor - l.paidMinor), 0))}.</p>
     </>
   );
 }

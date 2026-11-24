@@ -9,7 +9,7 @@ const base =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap border font-medium tracking-wide transition-all duration-200 cursor-pointer disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-4 [&_svg]:shrink-0";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-primary border-primary text-white shadow-primary hover:bg-primary-hover hover:border-primary-hover",
+  primary: "bg-primary border-primary text-white hover:bg-primary-hover hover:border-primary-hover",
   secondary: "bg-surface border-line text-fg-2 hover:bg-sunk hover:text-fg",
   ghost: "bg-transparent border-transparent text-brand-ink hover:bg-brand-50",
   danger: "bg-rej-bg border-rej-line text-rej-fg hover:bg-rej-line",

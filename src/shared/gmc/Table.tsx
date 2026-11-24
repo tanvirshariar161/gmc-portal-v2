@@ -31,7 +31,7 @@ export function DataTable<T>({
       <table className="w-full text-sm" style={{ minWidth }}>
         <caption className="sr-only">{caption}</caption>
         <thead>
-          <tr className="bg-primary text-white">
+          <tr className="bg-thead text-thead-fg">
             {columns.map((c) => (
               <th key={c.key} scope="col" className={cn("h-10 whitespace-nowrap px-4 font-medium", c.align === "right" ? "text-right" : "text-left")}>
                 {c.header}

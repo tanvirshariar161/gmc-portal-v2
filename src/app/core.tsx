@@ -221,6 +221,6 @@ export function useRunPublic() {
 
 export function useDocumentTitle(title: string) {
   useEffect(() => {
-    document.title = `${title} · GMCA Income Tax (v2 demo)`;
+    document.title = `${title} · GMCA Income Tax`;
   }, [title]);
 }

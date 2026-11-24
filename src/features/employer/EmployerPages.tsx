@@ -7,7 +7,7 @@ import { formatAmount, formatMoney, minorToInput, parseAmountInput } from "../..
 import type { CsvUpdate } from "../../lib/payrollCsv";
 import { activeIncentive, ruleSetForYear } from "../../services/calc";
 import { classForCompany, describeRate } from "../../services/classification";
-import { addEmployee, declarationIssues, employedInPeriod, ensureDeclaration, saveDeclarationLines, submitDeclaration, updateEmployee, verifyEmployee, type EmployeeInput } from "../../services/employer";
+import { addEmployee, declarationByCurrency, declarationIssues, employedInPeriod, ensureDeclaration, saveDeclarationLines, submitDeclaration, updateEmployee, verifyEmployee, type EmployeeInput } from "../../services/employer";
 import { liabilityStatus, outstanding } from "../../services/payments";
 import { Button } from "../../shared/gmc/Button";
 import { RadioGroup, SelectField, TextField } from "../../shared/gmc/Form";
@@ -16,7 +16,8 @@ import { DataTable } from "../../shared/gmc/Table";
 import { openRequestsFor } from "../shared/queries";
 import { PayrollCsvImport } from "./PayrollCsvImport";
 import { Forbidden } from "../shared/TaxpayerShared";
-import { AssessmentBadge, CalcBreakdown, ConversionView, CurrencySelect, DemoTag, KeyValue, MetricStrip, PageHeader, PaymentBadge, Section, SubmissionBadge, userName } from "../shared/ui";
+import { DkBankLogo } from "../../shared/gmc/DkBankLogo";
+import { AssessmentBadge, CalcBreakdown, ConversionView, CurrencySelect, DocLink, KeyValue, MetricStrip, PageHeader, PaymentBadge, RecordUpload, Section, SubmissionBadge, userName } from "../shared/ui";
 
 export function useCompany() {
   const db = useDb();
@@ -182,7 +183,7 @@ export function CompanyProfile() {
   return (
     <>
       <PageHeader title="Company profile" lead="Registration details come from the Corporate Registration System and can't be edited here." />
-      <Section title="Registration" actions={<span className="flex items-center gap-2 text-sm text-muted">Verified <DemoTag>Simulated registry</DemoTag></span>}>
+      <Section title="Registration" actions={<span className="flex items-center gap-2 text-sm text-muted">Verified</span>}>
         <div className="panel p-5">
           <KeyValue
             rows={[
@@ -237,7 +238,7 @@ export function EmployeesPage() {
     <>
       <PageHeader
         title="Employee directory"
-        lead="Bhutanese employees are identified by Citizenship ID, foreign employees by work permit or passport. Foreign employees are checked against the simulated Immigration System."
+        lead="Bhutanese employees are identified by Citizenship ID, foreign employees by work permit or passport. Foreign employees are checked against the Immigration System."
         actions={
           <Button onClick={() => navigate("/company/employees/new")}>
             <UserPlus /> Add employee
@@ -306,7 +307,7 @@ export function EmployeeEditor({ id }: { id?: string }) {
         <div className="flex flex-wrap items-center gap-3">
           <StatusBadge tone={VERIFY_TONE[existing.verification.status]}>{VERIFY_LABEL[existing.verification.status]}</StatusBadge>
           <span className="text-sm text-muted">
-            {existing.verification.provider === "IMMIGRATION" ? "Immigration System" : "Citizen record"} <DemoTag>Simulated</DemoTag> {existing.verification.checkedAt ? `· checked ${formatDateTime(existing.verification.checkedAt)}` : ""}
+            {existing.verification.provider === "IMMIGRATION" ? "Immigration System" : "Citizen record"} {existing.verification.checkedAt ? `· checked ${formatDateTime(existing.verification.checkedAt)}` : ""}
           </span>
           <Button size="sm" variant="secondary" onClick={() => run((d, a) => verifyEmployee(d, a, existing.id), "Verification refreshed")}>
             Check again
@@ -339,7 +340,7 @@ export function EmployeeEditor({ id }: { id?: string }) {
               <option value="PASSPORT">Passport</option>
             </SelectField>
           ) : null}
-          <TextField label={form.identifierType === "CID" ? "Citizenship ID" : form.identifierType === "WORK_PERMIT" ? "Work permit number" : "Passport number"} required value={form.identifierValue} onChange={(e) => set({ identifierValue: form.identifierType === "CID" ? e.target.value.replace(/\D/g, "").slice(0, 11) : e.target.value.toUpperCase() })} hint={form.category === "FOREIGN" ? "Demo records: WP-DEMO-2026-0003, DEMO-TH-5521" : "11 digits"} />
+          <TextField label={form.identifierType === "CID" ? "Citizenship ID" : form.identifierType === "WORK_PERMIT" ? "Work permit number" : "Passport number"} required value={form.identifierValue} onChange={(e) => set({ identifierValue: form.identifierType === "CID" ? e.target.value.replace(/\D/g, "").slice(0, 11) : e.target.value.toUpperCase() })} hint={form.category === "FOREIGN" ? "For example WP-DEMO-2026-0003 or DEMO-TH-5521" : "11 digits"} />
           <TextField label="Position" value={form.position} onChange={(e) => set({ position: e.target.value })} />
           <CurrencySelect db={db} label="Usual pay currency" value={form.defaultCurrency} onChange={(c) => set({ defaultCurrency: c })} />
           <TextField label="Start date" type="date" required value={form.startDate} onChange={(e) => set({ startDate: e.target.value })} />
@@ -350,7 +351,7 @@ export function EmployeeEditor({ id }: { id?: string }) {
           </SelectField>
           <TextField label="End date" type="date" value={form.endDate ?? ""} onChange={(e) => set({ endDate: e.target.value || undefined })} hint={form.status === "LEFT" ? "Required when the employee has left" : "Leave empty if still employed"} />
         </div>
-        <p className="text-sm text-muted">How joiners, leavers and partial months are treated is still to be confirmed by GMCA; the prototype includes anyone employed on any day of the month.</p>
+        <p className="text-sm text-muted">How joiners, leavers and partial months are treated is still to be confirmed by GMCA; the portal includes anyone employed on any day of the month.</p>
         <div>
           <Button type="submit">
             <Save /> {existing ? "Save changes" : "Add and verify"}
@@ -429,11 +430,56 @@ export function DeclarationPage({ period }: { period: string }) {
   return <DeclarationEditor key={decl.id} db={db} decl={decl} />;
 }
 
+/** The declaration total split by the currency employees are paid in, so the employer sees where the amount due comes from. */
+function CurrencyBreakdown({ decl, reporting }: { decl: EmployerMonthlyDeclaration; reporting: string }) {
+  const rows = declarationByCurrency(decl);
+  if (!rows.length) return null;
+  const total = rows.reduce((s, r) => s + r.dueMinor, 0);
+  return (
+    <section className="border border-line bg-surface" aria-labelledby={`cur-${decl.id}`}>
+      <div className="border-b border-line px-5 py-3">
+        <h3 id={`cur-${decl.id}`} className="font-medium">
+          By pay currency
+        </h3>
+        <p className="text-xs text-muted">You pay GMC in {reporting}. This shows how much of the total comes from each currency your employees are paid in.</p>
+      </div>
+      <ul className="divide-y divide-line-soft">
+        {rows.map((r) => (
+          <li key={r.currency} className="grid gap-1 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <span className="grid gap-0.5">
+              <span className="font-medium">
+                {r.currency} <span className="font-normal text-muted">· {r.employees} {r.employees === 1 ? "employee" : "employees"}</span>
+              </span>
+              <span className="num text-sm text-fg-2">
+                Pay {formatAmount(r.payMinor, r.currency)}
+                {r.currency !== reporting ? (r.pending ? " · no exchange rate yet" : ` = ${formatAmount(r.reportingMinor, reporting)}`) : ""}
+              </span>
+            </span>
+            <span className="num grid text-left sm:text-right">
+              <span className="font-medium">{formatMoney(r.dueMinor)}</span>
+              <span className="text-xs text-muted">
+                TDS {formatMoney(r.tdsMinor)} + health {formatMoney(r.healthMinor)}
+              </span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      <div className="flex items-center justify-between gap-3 border-t border-line bg-sunk px-5 py-3 font-medium">
+        <span>Total to pay GMC</span>
+        <span className="num">{formatMoney(total)}</span>
+      </div>
+    </section>
+  );
+}
+
 function DeclarationEditor({ db, decl }: { db: Db; decl: EmployerMonthlyDeclaration }) {
   const run = useRun();
   const locked = decl.submissionStatus === "SUBMITTED";
   const [lines, setLines] = useState(() => decl.lines.map((l) => ({ employeeId: l.employeeId, amount: minorToInput(l.amountMinor || null), currency: l.currency })));
   const [confirming, setConfirming] = useState(false);
+  const [payWay, setPayWay] = useState<"AFTER" | "PAID">("AFTER");
+  const [bankRef, setBankRef] = useState("");
+  const [evidenceIds, setEvidenceIds] = useState<string[]>([]);
   const dirty = lines.some((l) => {
     const o = decl.lines.find((x) => x.employeeId === l.employeeId)!;
     return (parseAmountInput(l.amount) ?? 0) !== o.amountMinor || l.currency !== o.currency;
@@ -456,6 +502,11 @@ function DeclarationEditor({ db, decl }: { db: Db; decl: EmployerMonthlyDeclarat
     setLines(next);
     return true;
   };
+  const due = decl.calculation?.balanceMinor ?? 0;
+  const paidAlready = payWay === "PAID" && due > 0;
+  const evidenceMissing = paidAlready && (!bankRef.trim() || !evidenceIds.length);
+  const evidencePayment = l ? db.payments.find((p) => p.liabilityId === l.id && p.method === "EVIDENCE") : undefined;
+  const evidenceDoc = evidencePayment?.evidenceDocId ? db.documents.find((d) => d.id === evidencePayment.evidenceDocId) : undefined;
   const byCurrency = useMemo(() => {
     const m = new Map<string, number>();
     for (const x of decl.lines) m.set(x.currency, (m.get(x.currency) ?? 0) + 1);
@@ -477,6 +528,12 @@ function DeclarationEditor({ db, decl }: { db: Db; decl: EmployerMonthlyDeclarat
       {locked ? (
         <Alert tone="approved" title="Declaration submitted" action={<div className="flex gap-2">{ack ? <Button size="sm" variant="secondary" onClick={() => navigate(`/documents/${ack.id}`)}>Certificate</Button> : null}{l && outstanding(l) > 0 && liabilityStatus(db, l) !== "PENDING" ? <Button size="sm" onClick={() => navigate(`/payments/${l.id}/pay`)}>Pay {formatMoney(outstanding(l))}</Button> : null}</div>}>
           This declaration is locked. Each employee's income now shows in their own tax account.
+        </Alert>
+      ) : null}
+      {locked && evidencePayment ? (
+        <Alert tone="review" title="Paid in DK Bank before submitting">
+          {formatMoney(evidencePayment.amountMinor, evidencePayment.currency)} · DK Bank reference <span className="num">{evidencePayment.bankTransactionRef}</span>
+          {evidenceDoc ? <> · <DocLink doc={evidenceDoc}>{evidenceDoc.fileName}</DocLink></> : null}. GMCA checks the receipt against DK Bank.
         </Alert>
       ) : null}
       {!locked ? <PayrollCsvImport roster={roster} currencies={db.config.currencies.filter((c) => c.enabled).map((c) => c.code)} fileName={`payroll-${decl.period}.csv`} formatAmount={formatAmount} onApply={importCsv} /> : null}
@@ -516,7 +573,10 @@ function DeclarationEditor({ db, decl }: { db: Db; decl: EmployerMonthlyDeclarat
       />
       {!locked && dirty ? <Alert tone="review">You've changed amounts or currencies. Save to recalculate TDS and health contributions.</Alert> : null}
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
-        <CalcBreakdown snapshot={decl.calculation} title="Declaration totals" />
+        <div className="grid content-start gap-6">
+          <CalcBreakdown snapshot={decl.calculation} title="Declaration totals" />
+          <CurrencyBreakdown decl={decl} reporting={db.config.reportingCurrency} />
+        </div>
         {!locked ? (
           <div className="grid content-start gap-4 border border-line bg-surface p-5">
             <h3 className="font-medium">Submit</h3>
@@ -527,17 +587,51 @@ function DeclarationEditor({ db, decl }: { db: Db; decl: EmployerMonthlyDeclarat
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-muted">Ready to submit. You'll get a reference and certificate, and the total becomes payable.</p>
+              <p className="text-sm text-muted">Ready to submit. You'll get a reference and certificate.</p>
             )}
+            {due > 0 ? (
+              <RadioGroup
+                legend={`How are you paying the ${formatMoney(due)}?`}
+                name={`pay-${decl.id}`}
+                value={payWay}
+                onChange={(v) => {
+                  setPayWay(v);
+                  setConfirming(false);
+                }}
+                options={[
+                  { value: "AFTER", label: "Submit, then pay through DK Bank", description: "The total becomes payable when you submit. Pay it online straight after." },
+                  { value: "PAID", label: "I've already paid in DK Bank", description: "Upload the payment receipt and submit. The month shows as paid." }
+                ]}
+              />
+            ) : null}
+            {paidAlready ? (
+              <div className="grid gap-4 border border-line-soft bg-sunk p-4">
+                <DkBankLogo />
+                <TextField label="DK Bank transaction reference" required value={bankRef} onChange={(e) => setBankRef(e.target.value)} placeholder="For example: DKB-TXN-204118" hint={`The payment should be ${formatMoney(due)}, this declaration's total.`} />
+                <RecordUpload
+                  db={db}
+                  label="Payment receipt from DK Bank"
+                  required
+                  category="PAYMENT_EVIDENCE"
+                  owner={{ kind: "COMPANY", id: decl.companyId }}
+                  related={{ kind: "MONTHLY_DECLARATION", id: decl.id }}
+                  docIds={evidenceIds}
+                  onChange={setEvidenceIds}
+                />
+                <p className="text-xs text-muted">GMCA checks the receipt against DK Bank after you submit.</p>
+              </div>
+            ) : null}
             {!confirming ? (
-              <Button disabled={dirty || issues.length > 0} onClick={() => setConfirming(true)}>
-                Submit declaration
+              <Button disabled={dirty || issues.length > 0 || evidenceMissing} onClick={() => setConfirming(true)}>
+                {paidAlready ? "Submit with payment evidence" : "Submit declaration"}
               </Button>
             ) : (
               <div className="grid gap-3 border border-act-line bg-act-bg p-3">
-                <p className="text-sm text-act-fg">Submit {formatPeriod(decl.period)} for {decl.lines.length} employees? It will be locked.</p>
+                <p className="text-sm text-act-fg">
+                  Submit {formatPeriod(decl.period)} for {decl.lines.length} employees? It will be locked{paidAlready ? `, and the ${formatMoney(due)} recorded as paid in DK Bank` : due > 0 ? `, and ${formatMoney(due)} becomes payable` : ""}.
+                </p>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => run((d, a) => submitDeclaration(d, a, decl.id), "Declaration submitted")}>
+                  <Button size="sm" onClick={() => run((d, a) => submitDeclaration(d, a, decl.id, paidAlready ? { bankTransactionRef: bankRef, evidenceDocId: evidenceIds[0]! } : undefined), paidAlready ? "Declaration submitted with payment evidence" : "Declaration submitted")}>
                     Yes, submit
                   </Button>
                   <Button size="sm" variant="secondary" onClick={() => setConfirming(false)}>
