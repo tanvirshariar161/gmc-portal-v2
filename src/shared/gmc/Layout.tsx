@@ -1,7 +1,6 @@
 import { AlertTriangle, CheckCircle2, ChevronRight, Info, XCircle } from "lucide-react";
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import { appHref } from "../../lib/basePath";
 import { cn } from "../../lib/utils";
 import { formatMoney, type Cents } from "../../lib/money";
 
@@ -122,7 +121,7 @@ export function IconTile({ icon: Icon, size = 40, tone = "brand" }: { icon: type
 export function Tile({ icon, title, description, count, href, onNavigate }: { icon: typeof Info; title: string; description: string; count?: number; href: string; onNavigate: (path: string) => void }) {
   return (
     <a
-      href={appHref(href)}
+      href={href}
       onClick={(e) => {
         e.preventDefault();
         onNavigate(href);
@@ -167,7 +166,7 @@ export function ActionCard({
 }) {
   return (
     <a
-      href={appHref(href)}
+      href={href}
       onClick={(e) => {
         e.preventDefault();
         onNavigate(href);
@@ -219,7 +218,7 @@ export function Breadcrumb({ items, onNavigate }: { items: { label: string; href
             {i > 0 ? <ChevronRight aria-hidden="true" className="size-3.5" /> : null}
             {item.href ? (
               <a
-                href={appHref(item.href)}
+                href={item.href}
                 className="hover:text-fg"
                 onClick={(e) => {
                   e.preventDefault();

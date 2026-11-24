@@ -4,7 +4,6 @@ import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { getDb, ServiceError, subscribe, transact, type Actor } from "../domain/store";
 import type { Db, Role, User } from "../domain/types";
 import { setReportingCurrency } from "../lib/money";
-import { appHref, appPath } from "../lib/basePath";
 import { cn } from "../lib/utils";
 
 // ---------- Router (history API, no dependency) ----------
@@ -12,14 +11,14 @@ import { cn } from "../lib/utils";
 const NAV_EVENT = "gmca:navigate";
 
 export function navigate(to: string, opts: { replace?: boolean } = {}) {
-  if (opts.replace) history.replaceState(null, "", appHref(to));
-  else history.pushState(null, "", appHref(to));
+  if (opts.replace) history.replaceState(null, "", to);
+  else history.pushState(null, "", to);
   window.dispatchEvent(new Event(NAV_EVENT));
   window.scrollTo({ top: 0 });
 }
 
 function readLocation() {
-  return appPath(window.location.pathname) + window.location.search;
+  return window.location.pathname + window.location.search;
 }
 
 export function useLocation() {
@@ -57,7 +56,7 @@ export function matchPath(pattern: string, path: string): Record<string, string>
 export function Link({ to, className, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { to: string }) {
   return (
     <a
-      href={appHref(to)}
+      href={to}
       className={className}
       onClick={(e) => {
         props.onClick?.(e);

@@ -16,17 +16,17 @@ npm run build      # typecheck + production build
 
 Data lives in this browser's `localStorage` (`gmca-v2:db`). To return to the seeded state, use **Reset demo data**: it's in the account menu for every role, on the sign-in page, and under *Admin → Integration demo settings*.
 
-## Live demo (GitHub Pages)
+## Deploy (SELISE Blocks)
 
-The app is published at <https://tanvirshariar161.github.io/gmc-portal-v2/> from the repository `tanvirshariar161/gmc-portal-v2`, which holds only this folder. `.github/workflows/pages.yml` tests, builds and deploys every push to its `main` branch.
+Blocks Release builds and hosts this app from the repository `tanvirshariar161/gmc-portal-v2`, branch `dev`, which holds only this folder. `Dockerfile` runs the tests, builds the app and serves `dist` with nginx on port 8080 (`nginx.conf` sends every route to `index.html`). Version 1 is a separate Blocks deployment.
 
-To publish changes from this monorepo, commit them here and push the folder:
+To publish changes from this monorepo, commit them here, push the folder, then deploy:
 
 ```bash
-git subtree push --prefix apps/portal-v2 v2-pages main
+git subtree push --prefix apps/portal-v2 v2-pages dev
+blocks release deploy --repo tanvirshariar161/gmc-portal-v2 --dry-run --json
+blocks release deploy --repo tanvirshariar161/gmc-portal-v2 --yes --wait --json
 ```
-
-Pages serves the app from `/gmc-portal-v2/`. Routes stay root-relative in code; `src/lib/basePath.ts` adds and removes that sub-path at the browser edge, so use `navigate`, `Link`, `NavLink` or `appHref` for in-app URLs and public files referenced from TSX.
 
 ## Demo accounts
 

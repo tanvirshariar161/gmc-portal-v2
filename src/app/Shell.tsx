@@ -37,7 +37,6 @@ import { ROLE_LABEL } from "../domain/permissions";
 import { getPersistError, resetDemoData } from "../domain/store";
 import type { Role } from "../domain/types";
 import { formatDateTime } from "../lib/format";
-import { appHref } from "../lib/basePath";
 import { cn } from "../lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "../shared/ui/dropdown-menu";
 import { isRead, notificationsFor } from "../features/shared/queries";
@@ -144,7 +143,7 @@ function useTheme() {
 export function Logo({ dark }: { dark: boolean }) {
   return (
     <span className="flex items-center gap-3">
-      <img src={appHref(dark ? "/logo1.svg" : "/gmc-logo-black.svg")} alt="" className="h-12 w-auto sm:h-14" />
+      <img src={dark ? "/logo1.svg" : "/gmc-logo-black.svg"} alt="" className="h-12 w-auto sm:h-14" />
       <span className="border-l border-line pl-3 text-[12px] font-medium uppercase leading-tight tracking-[0.12em] text-muted">
         Income
         <br />
