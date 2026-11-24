@@ -20,6 +20,15 @@ export function progressiveTax(amount: Minor, bands: Band[]): Minor {
 }
 
 /** Monthly TDS brackets are inclusive at the top: ≤1,000 is 0%, >1,000 and ≤3,000 is 2%, and so on. */
+/** Band-by-band working for the "Your tax" table. */
+export function bandBreakdown(amount: Minor, bands: Band[]) {
+  return bands.map((b) => {
+    const top = b.toMinor === null ? amount : Math.min(amount, b.toMinor);
+    const inBand = Math.max(0, top - b.fromMinor);
+    return { band: b, inBandMinor: inBand, taxMinor: roundHalfUp(inBand * (b.ratePct / 100)) };
+  });
+}
+
 export function bracketFor(amount: Minor, bands: Band[]): Band | undefined {
   return bands.find((b) => b.toMinor === null || amount <= b.toMinor);
 }
@@ -103,7 +112,22 @@ export function calculateIndividual(input: IndividualInput, rules: TaxRuleSet, r
   }
   lines.push({ key: "balance", label: balance >= 0 ? "Estimated balance payable" : "Estimated credit", amountMinor: balance, tone: "total" });
 
-  return { id: "", kind: "INDIVIDUAL", ruleSetId: rules.id, ruleSetVersion: rules.version, reportingCurrency, computedAt: now, lines, taxMinor: tax, creditsMinor: tdsMinor, balanceMinor: balance, warnings, assumptions };
+  const nonResident = input.residency === "NON_RESIDENT" && rules.nonResidentRatePct !== null;
+  return {
+    id: "",
+    kind: "INDIVIDUAL",
+    ruleSetId: rules.id,
+    ruleSetVersion: rules.version,
+    reportingCurrency,
+    computedAt: now,
+    lines,
+    taxMinor: tax,
+    creditsMinor: tdsMinor,
+    balanceMinor: balance,
+    warnings,
+    assumptions,
+    figures: { totalIncomeMinor: totalIncome, exemptMinor: exempt, taxableMinor: taxableIncome, reliefsMinor: reliefTotal, chargeableMinor: chargeable, nonResidentRatePct: nonResident ? rules.nonResidentRatePct! : undefined }
+  };
 }
 
 // ---------- Employer monthly TDS and health ----------

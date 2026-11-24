@@ -257,7 +257,8 @@ export function ReturnDetail({ id, justSubmitted }: { id: string; justSubmitted:
   const ack = ret.ackDocId ? db.documents.find((d) => d.id === ret.ackDocId) : undefined;
   const noa = a?.noaDocId ? db.documents.find((d) => d.id === a.noaDocId) : undefined;
   const l = a?.liabilityId ? db.liabilities.find((x) => x.id === a.liabilityId) : undefined;
-  const receipts = l ? db.payments.filter((p) => p.liabilityId === l.id && p.receiptDocId).map((p) => db.documents.find((d) => d.id === p.receiptDocId)!) : [];
+  const paidWith = db.liabilities.filter((x) => x.source === "INDIVIDUAL_SELF_ASSESSMENT" && x.sourceId === ret.id).map((x) => x.id);
+  const receipts = db.payments.filter((p) => (p.liabilityId === l?.id || paidWith.includes(p.liabilityId)) && p.receiptDocId).map((p) => db.documents.find((d) => d.id === p.receiptDocId)!);
   const requests = a ? db.infoRequests.filter((r) => r.assessmentId === a.id) : [];
   return (
     <>
@@ -288,6 +289,7 @@ export function ReturnDetail({ id, justSubmitted }: { id: string; justSubmitted:
               rows={[
                 { label: "Assessed tax", value: formatMoney(a.outcome.assessedTaxMinor) },
                 { label: "Tax credits (TDS)", value: formatMoney(a.outcome.creditsMinor) },
+                ...(a.outcome.prepaidMinor ? [{ label: "Paid with the return", value: formatMoney(a.outcome.prepaidMinor) }] : []),
                 { label: a.outcome.balanceMinor >= 0 ? "Balance payable" : "Credit", value: <strong>{formatMoney(a.outcome.balanceMinor)}</strong> },
                 { label: "Outstanding now", value: l ? formatMoney(outstanding(l)) : "Nothing due" },
                 { label: "Assessed by", value: `${userName(db, a.outcome.by)}, ${formatDate(a.outcome.at)}` }
@@ -395,7 +397,9 @@ export function IndividualHistory() {
             const l = a?.liabilityId ? db.liabilities.find((x) => x.id === a.liabilityId) : undefined;
             const ack = r.ackDocId ? db.documents.find((d) => d.id === r.ackDocId) : undefined;
             const noa = a?.noaDocId ? db.documents.find((d) => d.id === a.noaDocId) : undefined;
-            const receipt = l ? db.payments.filter((p) => p.liabilityId === l.id && p.receiptDocId).map((p) => db.documents.find((d) => d.id === p.receiptDocId)).find(Boolean) : undefined;
+            const payIds = db.liabilities.filter((x) => x.id === l?.id || (x.source === "INDIVIDUAL_SELF_ASSESSMENT" && x.sourceId === r.id)).map((x) => x.id);
+            const receipt = db.payments.filter((p) => payIds.includes(p.liabilityId) && p.receiptDocId).map((p) => db.documents.find((d) => d.id === p.receiptDocId)).find(Boolean);
+            const prepaid = db.liabilities.filter((x) => x.source === "INDIVIDUAL_SELF_ASSESSMENT" && x.sourceId === r.id).reduce((sum, x) => sum + x.paidMinor, 0);
             return (
               <article key={r.id} className="grid gap-4 border border-line bg-surface p-5 sm:p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -416,7 +420,7 @@ export function IndividualHistory() {
                     { label: "Calculated tax (on return)", value: r.calculation ? formatMoney(r.calculation.taxMinor) : "—" },
                     { label: "TDS / tax credits", value: r.calculation ? formatMoney(r.calculation.creditsMinor) : "—" },
                     { label: "Assessed tax", value: a?.outcome ? formatMoney(a.outcome.assessedTaxMinor) : "Not assessed yet" },
-                    { label: "Paid / outstanding", value: l ? `${formatMoney(l.paidMinor)} paid · ${formatMoney(outstanding(l))} outstanding` : a?.outcome ? "Nothing due" : "—" }
+                    { label: "Paid / outstanding", value: `${formatMoney(prepaid + (l?.paidMinor ?? 0))} paid · ${formatMoney(l ? outstanding(l) : 0)} outstanding` }
                   ]}
                 />
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-line-soft pt-4 text-sm">

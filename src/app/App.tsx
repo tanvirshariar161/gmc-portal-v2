@@ -26,6 +26,7 @@ const ROUTES: Route[] = [
   { path: "/income", roles: ["INDIVIDUAL"], render: () => <IncomePage /> },
   { path: "/returns", roles: ["INDIVIDUAL"], render: () => <ReturnsPage /> },
   { path: "/returns/file/:year", roles: ["INDIVIDUAL"], render: (p) => <ReturnWizardEntry year={Number(p.year)} /> },
+  { path: "/returns/file/:year/:step", roles: ["INDIVIDUAL"], render: (p) => <ReturnWizardEntry year={Number(p.year)} step={p.step} /> },
   { path: "/returns/:id", roles: ["INDIVIDUAL"], render: (p, q) => <ReturnDetail id={p.id!} justSubmitted={q.get("submitted") === "1"} /> },
 
   // Employer

@@ -317,11 +317,6 @@ export function Shell({ children }: { children: ReactNode }) {
       <div className="page flex flex-1 gap-10 pb-20 pt-8">
         <aside className="hidden w-60 shrink-0 lg:block">
           <div className="sticky top-6 grid gap-6">
-            <div className="border border-line bg-surface px-3 py-3">
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted">Signed in as</p>
-              <p className="mt-1 text-sm font-medium text-fg">{ROLE_LABEL[user.role]}</p>
-              {user.demoLabel ? <p className="text-xs text-act-fg">Demo account</p> : null}
-            </div>
             <SideNav role={user.role} path={path} />
           </div>
         </aside>

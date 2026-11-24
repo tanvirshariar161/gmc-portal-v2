@@ -372,7 +372,7 @@ export function ReliefConfigPage() {
 
 function PlatformSettings({ db }: { db: Db }) {
   const run = useRun();
-  const [s, setS] = useState({ currentFilingYear: db.config.currentFilingYear, filingDeadlineMonthDay: db.config.filingDeadlineMonthDay, currentPayrollPeriod: db.config.currentPayrollPeriod, informationRequestDays: db.config.informationRequestDays, conversionDateRule: db.config.conversionDateRule });
+  const [s, setS] = useState({ currentFilingYear: db.config.currentFilingYear, filingDeadlineMonthDay: db.config.filingDeadlineMonthDay, payBeforeSubmit: db.config.payBeforeSubmit, currentPayrollPeriod: db.config.currentPayrollPeriod, informationRequestDays: db.config.informationRequestDays, conversionDateRule: db.config.conversionDateRule });
   return (
     <Section title="Filing settings" description="The individual filing deadline is shown to taxpayers on their overview. Penalties for late filing are not configured.">
       <form className="grid max-w-3xl gap-4 border border-line bg-surface p-5 sm:grid-cols-2" onSubmit={(e) => { e.preventDefault(); run((d, a) => setPlatformSetting(d, a, s), "Settings saved"); }}>
@@ -384,6 +384,11 @@ function PlatformSettings({ db }: { db: Db }) {
           <option value="PERIOD_END">End of the income or payroll period</option>
           <option value="FILING_DATE">Date of filing</option>
         </SelectField>
+        <div className="sm:col-span-2">
+          <Checkbox checked={s.payBeforeSubmit} onChange={(v) => setS({ ...s, payBeforeSubmit: v })} hint="Version 1 flow: a return with an estimated balance is paid through DK Bank first and submitted on confirmation. Off: returns are submitted first and paid after assessment.">
+            Taxpayers pay the estimated balance before the return is submitted
+          </Checkbox>
+        </div>
         <div className="sm:col-span-2"><Button type="submit">Save settings</Button></div>
       </form>
     </Section>

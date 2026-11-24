@@ -241,6 +241,7 @@ export function CasePage({ id }: { id: string }) {
   const trail = db.audit.filter((e) => e.entityId === a.id || e.entityId === ret.id || requests.some((r) => r.id === e.entityId) || uploaded.some((d) => d.id === e.entityId));
   const calc = ret.calculation!;
   const adjTotal = a.adjustments.reduce((s, x) => s + x.amountMinor, 0);
+  const prepaid = db.liabilities.filter((l) => l.source === "INDIVIDUAL_SELF_ASSESSMENT" && l.sourceId === a.returnId).reduce((s, l) => s + l.paidMinor, 0);
   const adjMinor = adj.amount.trim().startsWith("-") ? -(parseAmountInput(adj.amount.trim().slice(1)) ?? NaN) : parseAmountInput(adj.amount) ?? NaN;
   const owner: OwnerRef = a.owner;
   const party = owner.kind === "INDIVIDUAL" ? db.taxpayers.find((t) => t.id === owner.id) : undefined;
@@ -358,7 +359,7 @@ export function CasePage({ id }: { id: string }) {
         <aside className="order-first grid content-start gap-6 md:grid-cols-2 2xl:order-2 2xl:sticky 2xl:top-6 2xl:grid-cols-1">
           <div className="grid gap-3 border border-line bg-surface p-5">
             <h2 className="font-medium">Assessment figures</h2>
-            <KeyValue rows={[{ label: "System calculated tax", value: formatMoney(calc.taxMinor) }, { label: "Adjustments", value: formatMoney(adjTotal) }, { label: "Tax to assess", value: <strong>{formatMoney(Math.max(0, calc.taxMinor + adjTotal))}</strong> }, { label: "Credits (TDS)", value: formatMoney(calc.creditsMinor) }, { label: "Balance", value: formatMoney(Math.max(0, calc.taxMinor + adjTotal) - calc.creditsMinor) }]} />
+            <KeyValue rows={[{ label: "System calculated tax", value: formatMoney(calc.taxMinor) }, { label: "Adjustments", value: formatMoney(adjTotal) }, { label: "Tax to assess", value: <strong>{formatMoney(Math.max(0, calc.taxMinor + adjTotal))}</strong> }, { label: "Credits (TDS)", value: formatMoney(calc.creditsMinor) }, { label: "Paid with return", value: formatMoney(prepaid) }, { label: "Balance", value: formatMoney(Math.max(0, calc.taxMinor + adjTotal) - calc.creditsMinor - prepaid) }]} />
             {a.calculationVerified ? (
               <p className={cn("text-sm", a.calculationVerified.result === "VERIFIED" ? "text-ok-fg" : "text-act-fg")}>
                 {a.calculationVerified.result === "VERIFIED" ? "Calculation verified" : `Issue flagged: ${a.calculationVerified.note}`} · {userName(db, a.calculationVerified.by)}

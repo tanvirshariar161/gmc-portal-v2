@@ -2,7 +2,7 @@ import type { Actor } from "./store";
 import type { Company, Db, Employee, IncomeSource, IndividualTaxpayer, ReliefClaim, TaxRuleSet, User } from "./types";
 import { withClock } from "../services/clock";
 import { uploadDocument } from "../services/documents";
-import { ensureDraftReturn, saveDraft, submitReturn } from "../services/individual";
+import { ensureDraftReturn, payAndSubmit, saveDraft, submitReturn } from "../services/individual";
 import { ensureCorporateDraft, ensureDeclaration, saveCorporateDraft, saveDeclarationLines, submitDeclaration, submitCorporate } from "../services/employer";
 import { addAdjustment, assignToMe, completeAssessment, recordVerification, requestInformation, respondToRequest, startReview, addNote } from "../services/assessment";
 import { initiatePayment, settlePayment } from "../services/payments";
@@ -113,7 +113,7 @@ function base(): Db {
   ];
 
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     seededAt: new Date().toISOString(),
     counters: {},
     users,
@@ -157,6 +157,7 @@ function base(): Db {
       informationRequestDays: 14,
       currentFilingYear: 2026,
       filingDeadlineMonthDay: "04-30",
+      payBeforeSubmit: true,
       currentPayrollPeriod: "2026-11",
       integrations: { ndi: "SEEDED", immigration: "SEEDED", companyRegistry: "SEEDED", dkBank: "CHOOSE", pendingResolvesTo: "SUCCESS" }
     }
@@ -239,7 +240,11 @@ function fileIndividual(d: Db, userId: string, year: number, at: string, sources
       return { id, reliefKey: r.key, declaredMinor: k(r.amount), note: "", docIds: [doc.id] };
     });
     saveDraft(d, actor, ret.id, { incomeSources: srcs, reliefs: rels, declarationAccepted: submit });
-    if (submit) submitReturn(d, actor, ret.id);
+    if (submit) {
+      // Version 1 flow: a balance is paid through DK Bank, which submits the return.
+      if ((ret.calculation?.balanceMinor ?? 0) > 0) settlePayment(d, actor, payAndSubmit(d, actor, ret.id).id, "SUCCESS");
+      else submitReturn(d, actor, ret.id);
+    }
     return ret;
   });
 }

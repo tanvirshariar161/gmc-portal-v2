@@ -140,7 +140,7 @@ export function PayPage({ liabilityId }: { liabilityId: string }) {
           >
             <Landmark /> Continue to DK Bank (simulated)
           </Button>
-          <Button variant="secondary" onClick={() => navigate("/payments")}>
+          <Button variant="secondary" onClick={() => history.back()}>
             Cancel
           </Button>
         </div>
@@ -223,6 +223,19 @@ export function ReceiptPage({ paymentId }: { paymentId: string }) {
       <PageHeader title={p.status === "SUCCESS" ? "Payment confirmed" : p.status === "PENDING" ? "Payment pending" : p.status === "FAILED" ? "Payment failed" : "Payment not completed"} back={{ to: "/payments", label: "Payments" }} />
       <div className="grid max-w-2xl gap-6">
         {p.status === "SUCCESS" ? <Alert tone="approved" title="DK Bank (simulated) confirmed the payment">Your balance has been updated.</Alert> : null}
+        {(() => {
+          const ret = l.source === "INDIVIDUAL_SELF_ASSESSMENT" ? db.individualReturns.find((r) => r.id === l.sourceId) : undefined;
+          if (!ret) return null;
+          return ret.submissionStatus === "SUBMITTED" ? (
+            <Alert tone="approved" title={`Your YA ${ret.year + 1} return has been submitted`} action={<Button size="sm" onClick={() => navigate(`/returns/${ret.id}?submitted=1`)}>View return</Button>}>
+              Reference <strong>{ret.reference}</strong>. GMCA will assess it and tell you here.
+            </Alert>
+          ) : (
+            <Alert tone="action" title="Your return has not been submitted yet">
+              It is submitted automatically when this payment is confirmed. <Link to={`/returns/file/${ret.year}/review`} className="underline">Back to your return</Link>
+            </Alert>
+          );
+        })()}
         {p.status === "PENDING" ? (
           <Alert tone="review" title="Waiting for the bank" action={<Button size="sm" variant="secondary" onClick={() => run((d, a) => recheckPayment(d, a, p.id), "Status refreshed")}>Recheck status</Button>}>
             Your balance is unchanged until the bank confirms. You can't start another payment for this liability meanwhile.
@@ -384,6 +397,12 @@ function GeneratedBody({ db, doc }: { db: Db; doc: TaxDocument }) {
                 <th scope="row" className="px-4 py-2.5 text-left font-normal">Less tax credits (TDS)</th>
                 <td className="num px-4 py-2.5 text-right">{formatMoney(-a.outcome.creditsMinor)}</td>
               </tr>
+              {a.outcome.prepaidMinor ? (
+                <tr className="border-b border-line-soft">
+                  <th scope="row" className="px-4 py-2.5 text-left font-normal">Less paid with the return</th>
+                  <td className="num px-4 py-2.5 text-right">{formatMoney(-a.outcome.prepaidMinor)}</td>
+                </tr>
+              ) : null}
               <tr className="bg-sunk font-medium">
                 <th scope="row" className="px-4 py-2.5 text-left">{a.outcome.balanceMinor >= 0 ? "Balance payable" : "Credit"}</th>
                 <td className="num px-4 py-2.5 text-right">{formatMoney(a.outcome.balanceMinor)}</td>

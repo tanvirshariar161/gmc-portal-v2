@@ -5,6 +5,7 @@ import { nowIso } from "./clock";
 import { generateDocument } from "./documents";
 import { providers } from "./integrations";
 import { logIntegration } from "./registration";
+import { submitReturn } from "./individual";
 
 /**
  * Payment state is separate from filing and assessment state. Only a SUCCESS from the
@@ -71,6 +72,11 @@ function applyOutcome(d: Db, actor: Actor, p: Payment, result: { outcome: Paymen
   p.receiptDocId = generateDocument(d, actor.id, "PAYMENT_RECEIPT", `Payment Acknowledgement · ${l.description}`, l.owner, { kind: "PAYMENT", id: p.id }).id;
   audit(d, actor, "PAYMENT_SUCCEEDED", "Payment", p.id, `Payment ${p.bankTransactionRef} of ${p.amountMinor / 100} ${p.currency} confirmed for ${l.reference}`);
   notify(d, { owner: l.owner }, "Payment confirmed", `Your Payment Acknowledgement for ${l.reference} is ready.`, `/payments/receipt/${p.id}`);
+  // Version 1 flow: a return paid in full with its estimated balance is submitted on confirmation.
+  if (l.source === "INDIVIDUAL_SELF_ASSESSMENT" && l.paidMinor >= l.amountMinor) {
+    const ret = d.individualReturns.find((r) => r.id === l.sourceId);
+    if (ret?.submissionStatus === "DRAFT") submitReturn(d, actor, ret.id);
+  }
 }
 
 export function settlePayment(d: Db, actor: Actor, paymentId: string, chosen: PaymentOutcome) {

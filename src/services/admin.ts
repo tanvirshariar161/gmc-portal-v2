@@ -155,7 +155,7 @@ export function addExchangeRate(d: Db, actor: Actor, input: Omit<ExchangeRate, "
   audit(d, actor, "EXCHANGE_RATE_ADDED", "ExchangeRate", rate.id, `${input.currency} = ${input.rate} ${d.config.reportingCurrency} from ${input.effectiveDate} (demo)`);
 }
 
-export function setPlatformSetting(d: Db, actor: Actor, patch: Partial<Pick<PlatformConfig, "reportingCurrency" | "conversionDateRule" | "informationRequestDays" | "currentFilingYear" | "currentPayrollPeriod" | "filingDeadlineMonthDay">>) {
+export function setPlatformSetting(d: Db, actor: Actor, patch: Partial<Pick<PlatformConfig, "reportingCurrency" | "conversionDateRule" | "informationRequestDays" | "currentFilingYear" | "currentPayrollPeriod" | "filingDeadlineMonthDay" | "payBeforeSubmit">>) {
   require(actor, "admin.config");
   if (patch.reportingCurrency && !d.config.currencies.some((c) => c.code === patch.reportingCurrency && c.enabled)) throw new ServiceError("Choose an enabled currency.");
   if (patch.informationRequestDays !== undefined && !(patch.informationRequestDays >= 1 && patch.informationRequestDays <= 365)) throw new ServiceError("Response days must be between 1 and 365.");

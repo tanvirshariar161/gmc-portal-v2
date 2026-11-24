@@ -142,9 +142,11 @@ export function completeAssessment(d: Db, actor: Actor, id: string, summary: str
   if (!ret || !calc) throw new ServiceError("The return has no calculation snapshot.");
   const adjustmentTotal = a.adjustments.reduce((s, x) => s + x.amountMinor, 0);
   const assessedTax = Math.max(0, calc.taxMinor + adjustmentTotal);
-  const balance = assessedTax - calc.creditsMinor;
+  // Anything already paid with the return (version 1 flow) counts against the assessed tax.
+  const prepaid = d.liabilities.filter((l) => l.source === "INDIVIDUAL_SELF_ASSESSMENT" && l.sourceId === a.returnId).reduce((s, l) => s + l.paidMinor, 0);
+  const balance = assessedTax - calc.creditsMinor - prepaid;
   const now = nowIso();
-  a.outcome = { assessedTaxMinor: assessedTax, creditsMinor: calc.creditsMinor, balanceMinor: balance, summary: summary.trim(), by: actor.id, at: now };
+  a.outcome = { assessedTaxMinor: assessedTax, creditsMinor: calc.creditsMinor, prepaidMinor: prepaid, balanceMinor: balance, summary: summary.trim(), by: actor.id, at: now };
   a.status = "COMPLETED";
   for (const r of d.infoRequests) if (r.assessmentId === a.id && r.status !== "CLOSED") r.status = "CLOSED";
   const label = a.returnKind === "INDIVIDUAL" ? "Individual Income Tax" : "Corporate Income Tax";

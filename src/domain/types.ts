@@ -182,6 +182,8 @@ export type CalculationSnapshot = {
   balanceMinor: Minor;
   warnings: string[];
   assumptions: string[];
+  /** Individual returns only: the headline figures of the working. */
+  figures?: { totalIncomeMinor: Minor; exemptMinor: Minor; taxableMinor: Minor; reliefsMinor: Minor; chargeableMinor: Minor; nonResidentRatePct?: number };
 };
 
 // ---------- Individual returns ----------
@@ -192,6 +194,7 @@ export type EmploymentIncomeLine = {
   months: number;
   grossMinor: Minor;
   tdsMinor: Minor;
+  healthMinor: Minor;
   currency: string;
   source: "EMPLOYER_DECLARATIONS";
 };
@@ -317,7 +320,7 @@ export type Assessment = {
   calculationVerified?: { by: ID; at: string; result: "VERIFIED" | "ISSUE_FLAGGED"; note: string };
   notes: { id: ID; by: ID; at: string; text: string }[];
   adjustments: AssessmentAdjustment[];
-  outcome?: { assessedTaxMinor: Minor; creditsMinor: Minor; balanceMinor: Minor; summary: string; by: ID; at: string };
+  outcome?: { assessedTaxMinor: Minor; creditsMinor: Minor; prepaidMinor?: Minor; balanceMinor: Minor; summary: string; by: ID; at: string };
   noaDocId?: ID;
   liabilityId?: ID;
   createdAt: string;
@@ -340,7 +343,8 @@ export type InformationRequest = {
 
 // ---------- Liabilities and payments ----------
 
-export type LiabilitySource = "INDIVIDUAL_ASSESSMENT" | "CORPORATE_ASSESSMENT" | "MONTHLY_DECLARATION";
+/** INDIVIDUAL_SELF_ASSESSMENT: the estimated balance paid with the return, before it is submitted. */
+export type LiabilitySource = "INDIVIDUAL_SELF_ASSESSMENT" | "INDIVIDUAL_ASSESSMENT" | "CORPORATE_ASSESSMENT" | "MONTHLY_DECLARATION";
 export type PaymentStatus = "NOT_DUE" | "UNPAID" | "PENDING" | "PARTIALLY_PAID" | "PAID" | "FAILED";
 
 export type Liability = {
@@ -456,6 +460,8 @@ export type PlatformConfig = {
   currentFilingYear: number;
   /** MM-DD in the year of assessment, e.g. "04-30" → YA 2027 return due 30 April 2027. */
   filingDeadlineMonthDay: string;
+  /** Version 1 flow: a return with an estimated balance is paid through DK Bank first, then submitted. */
+  payBeforeSubmit: boolean;
   currentPayrollPeriod: string;
   integrations: { ndi: IntegrationMode; immigration: IntegrationMode; companyRegistry: IntegrationMode; dkBank: BankMode; pendingResolvesTo: "SUCCESS" | "FAILURE" };
 };

@@ -5,6 +5,7 @@ import { calculateIndividual, ruleSetForYear } from "./calc";
 import { nowIso } from "./clock";
 import { convert, conversionDateFor } from "./currency";
 import { generateDocument } from "./documents";
+import { initiatePayment } from "./payments";
 
 const owner = (r: IndividualTaxReturn) => ({ kind: "INDIVIDUAL" as const, id: r.taxpayerId });
 
@@ -17,10 +18,11 @@ export function employmentFromDeclarations(d: Db, taxpayerId: string, year: numb
     for (const line of decl.lines) {
       if (!employeeIds.has(line.employeeId) || line.conversion?.reportingMinor == null) continue;
       const company = d.companies.find((c) => c.id === decl.companyId);
-      const cur = byCompany.get(decl.companyId) ?? { employerName: company?.name ?? "Employer", companyId: decl.companyId, months: 0, grossMinor: 0, tdsMinor: 0, currency: d.config.reportingCurrency, source: "EMPLOYER_DECLARATIONS" as const };
+      const cur = byCompany.get(decl.companyId) ?? { employerName: company?.name ?? "Employer", companyId: decl.companyId, months: 0, grossMinor: 0, tdsMinor: 0, healthMinor: 0, currency: d.config.reportingCurrency, source: "EMPLOYER_DECLARATIONS" as const };
       cur.months += 1;
       cur.grossMinor += line.conversion.reportingMinor;
       cur.tdsMinor += line.tdsMinor;
+      cur.healthMinor += line.healthMinor;
       byCompany.set(decl.companyId, cur);
     }
   }
@@ -57,13 +59,29 @@ export function ensureDraftReturn(d: Db, actor: Actor, year: number): Individual
   return ret;
 }
 
-export function recalculate(d: Db, ret: IndividualTaxReturn) {
+/** Converts each source and calculates, without writing anything. Used for the live estimate while editing. */
+export function previewCalculation(d: Db, ret: IndividualTaxReturn, incomeSources: IncomeSource[], reliefs: ReliefClaim[]) {
   const rules = ruleSetForYear(d.ruleSets, ret.year);
   const taxpayer = d.taxpayers.find((t) => t.id === ret.taxpayerId);
-  for (const s of ret.incomeSources) {
-    s.conversion = convert(d.config, s.amountMinor, s.currency, conversionDateFor(d.config, s.periodTo || `${ret.year}-12-31`, nowIso().slice(0, 10)));
-  }
-  ret.calculation = { ...calculateIndividual({ employment: ret.employment, incomeSources: ret.incomeSources, reliefs: ret.reliefs, residency: taxpayer?.residencyStatus ?? "NOT_DETERMINED" }, rules, d.config.reportingCurrency, nowIso()), id: nextId(d, "CALC") };
+  const sources = incomeSources.map((s) => ({ ...s, conversion: convert(d.config, s.amountMinor, s.currency, conversionDateFor(d.config, s.periodTo || `${ret.year}-12-31`, nowIso().slice(0, 10))) }));
+  const snapshot = calculateIndividual({ employment: ret.employment, incomeSources: sources, reliefs, residency: taxpayer?.residencyStatus ?? "NOT_DETERMINED" }, rules, d.config.reportingCurrency, nowIso());
+  return { sources, snapshot, rules };
+}
+
+export function recalculate(d: Db, ret: IndividualTaxReturn) {
+  const { sources, snapshot } = previewCalculation(d, ret, ret.incomeSources, ret.reliefs);
+  ret.incomeSources = sources;
+  ret.calculation = { ...snapshot, id: nextId(d, "CALC") };
+}
+
+/** The pre-payment liability for a draft return (version 1 flow: pay, then submit). */
+export function selfAssessmentFor(d: Db, returnId: string) {
+  return d.liabilities.find((l) => l.source === "INDIVIDUAL_SELF_ASSESSMENT" && l.sourceId === returnId);
+}
+
+function pendingPrepayment(d: Db, returnId: string) {
+  const l = selfAssessmentFor(d, returnId);
+  return l ? d.payments.find((p) => p.liabilityId === l.id && p.status === "PENDING") : undefined;
 }
 
 export type DraftPatch = { incomeSources?: IncomeSource[]; reliefs?: ReliefClaim[]; declarationAccepted?: boolean; refreshEmployment?: boolean };
@@ -72,6 +90,7 @@ export function saveDraft(d: Db, actor: Actor, returnId: string, patch: DraftPat
   const ret = getReturn(d, returnId);
   requireOwner(actor, owner(ret));
   if (ret.submissionStatus !== "DRAFT") throw new ServiceError("This return has been submitted and can no longer be edited.", "CONFLICT");
+  if (pendingPrepayment(d, ret.id)) throw new ServiceError("A payment for this return is pending with DK Bank. Check its status before changing the return.", "CONFLICT");
   if (patch.incomeSources) ret.incomeSources = patch.incomeSources;
   if (patch.reliefs) ret.reliefs = patch.reliefs;
   if (patch.declarationAccepted !== undefined) ret.declarationAccepted = patch.declarationAccepted;
@@ -110,6 +129,10 @@ export function submitReturn(d: Db, actor: Actor, returnId: string) {
   recalculate(d, ret);
   const issues = validateReturn(d, ret);
   if (issues.length) throw new ServiceError(issues[0]!.message);
+  if (d.config.payBeforeSubmit && ret.calculation!.balanceMinor > 0) {
+    const l = selfAssessmentFor(d, ret.id);
+    if (!l || l.amountMinor !== ret.calculation!.balanceMinor || l.paidMinor < l.amountMinor) throw new ServiceError("Pay the balance through DK Bank first. Your return is submitted as soon as the payment is confirmed.");
+  }
   const now = nowIso();
   ret.submissionStatus = "SUBMITTED";
   ret.submittedAt = now;
@@ -124,4 +147,28 @@ export function submitReturn(d: Db, actor: Actor, returnId: string) {
   notify(d, { owner: owner(ret) }, "Return submitted", `Your ${ret.year} Individual Income Tax Return ${ret.reference} was received. Your Acknowledgement Certificate is ready.`, `/returns/${ret.id}`);
   notify(d, { role: "ASSESSOR" }, "New individual return", `${ret.reference} is waiting to be assigned.`, `/gmca/cases/${assessment.id}`);
   return ret;
+}
+
+/**
+ * Version 1 flow: check the return, then open a DK Bank payment for the estimated balance.
+ * The return is submitted automatically when the bank confirms (see payments.ts).
+ */
+export function payAndSubmit(d: Db, actor: Actor, returnId: string) {
+  const ret = getReturn(d, returnId);
+  requireOwner(actor, owner(ret));
+  if (ret.submissionStatus !== "DRAFT") throw new ServiceError("This return was already submitted.", "CONFLICT");
+  if (pendingPrepayment(d, ret.id)) throw new ServiceError("A payment for this return is already pending with DK Bank. Check its status first.", "CONFLICT");
+  recalculate(d, ret);
+  const issues = validateReturn(d, ret);
+  if (issues.length) throw new ServiceError(issues[0]!.message);
+  const balance = ret.calculation!.balanceMinor;
+  if (balance <= 0) throw new ServiceError("There is nothing to pay. Submit the return instead.");
+  let l = selfAssessmentFor(d, ret.id);
+  if (l && l.paidMinor > 0 && l.amountMinor !== balance) throw new ServiceError("Part of this balance is already paid. Contact GMCA to change the return.", "CONFLICT");
+  if (!l) {
+    l = { id: nextId(d, "LIA"), reference: nextReference(d, "LIA", ret.year), owner: owner(ret), source: "INDIVIDUAL_SELF_ASSESSMENT", sourceId: ret.id, description: `Individual Income Tax ${ret.year} · paid with return`, amountMinor: balance, currency: ret.calculation!.reportingCurrency, paidMinor: 0, createdAt: nowIso() };
+    d.liabilities.push(l);
+  } else l.amountMinor = balance;
+  const liabilityId = l.id;
+  return initiatePayment(d, actor, liabilityId, balance - l.paidMinor);
 }

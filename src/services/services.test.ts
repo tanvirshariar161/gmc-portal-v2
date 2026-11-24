@@ -3,11 +3,11 @@ import { buildSeed } from "../domain/seed";
 import type { Actor } from "../domain/store";
 import type { Db } from "../domain/types";
 import { formatAmount, toMinor } from "../lib/money";
-import { assignToMe, completeAssessment, recordVerification, requestInformation, respondToRequest, startReview } from "./assessment";
+import { addAdjustment, assignToMe, completeAssessment, recordVerification, requestInformation, respondToRequest, startReview } from "./assessment";
 import { bracketFor, calculateCorporate, calculateIndividual, monthlyTds, progressiveTax, ruleSetForYear } from "./calc";
 import { convert } from "./currency";
 import { ensureDeclaration, saveDeclarationLines, submitDeclaration } from "./employer";
-import { ensureDraftReturn, saveDraft, submitReturn, validateReturn } from "./individual";
+import { ensureDraftReturn, payAndSubmit, saveDraft, submitReturn, validateReturn } from "./individual";
 import { initiatePayment, liabilityStatus, recheckPayment, settlePayment } from "./payments";
 import { uploadDocument } from "./documents";
 
@@ -71,7 +71,7 @@ describe("calculation engine", () => {
   it("caps reliefs, excludes exempt income and nets TDS", () => {
     const s = calculateIndividual(
       {
-        employment: [{ employerName: "X", months: 12, grossMinor: toMinor(40_000), tdsMinor: toMinor(1_000), currency: "USD", source: "EMPLOYER_DECLARATIONS" }],
+        employment: [{ employerName: "X", months: 12, grossMinor: toMinor(40_000), tdsMinor: toMinor(1_000), healthMinor: 0, currency: "USD", source: "EMPLOYER_DECLARATIONS" }],
         incomeSources: [{ id: "a", category: "GIFT", description: "Gift", payer: "", amountMinor: toMinor(5000), currency: "USD", periodFrom: "", periodTo: "", classification: "EXEMPT", conversion: convert(d.config, toMinor(5000), "USD", "2026-12-31"), supportingDocIds: [] }],
         reliefs: [{ id: "r", reliefKey: "SPOUSE", declaredMinor: toMinor(5_000), note: "", docIds: [] }],
         residency: "NOT_DETERMINED"
@@ -84,7 +84,7 @@ describe("calculation engine", () => {
     expect(s.warnings.join(" ")).toMatch(/cap/);
   });
   it("applies the non-resident rate only when GMCA recorded non-residency", () => {
-    const input = { employment: [{ employerName: "X", months: 12, grossMinor: toMinor(80_000), tdsMinor: 0, currency: "USD", source: "EMPLOYER_DECLARATIONS" as const }], incomeSources: [], reliefs: [] };
+    const input = { employment: [{ employerName: "X", months: 12, grossMinor: toMinor(80_000), tdsMinor: 0, healthMinor: 0, currency: "USD", source: "EMPLOYER_DECLARATIONS" as const }], incomeSources: [], reliefs: [] };
     expect(calculateIndividual({ ...input, residency: "NON_RESIDENT" }, rules(), "USD").taxMinor).toBe(0);
     expect(calculateIndividual({ ...input, residency: "NOT_DETERMINED" }, rules(), "USD").taxMinor).toBeGreaterThan(0);
   });
@@ -113,6 +113,7 @@ describe("permissions", () => {
 
 describe("individual return submission", () => {
   it("requires a bank statement per source, then locks the return and opens an assessment", () => {
+    d.config.payBeforeSubmit = false;
     const karma = actor("usr-karma");
     const ret = ensureDraftReturn(d, karma, 2026);
     expect(ret.employment[0]?.months).toBe(10);
@@ -138,10 +139,31 @@ describe("individual return submission", () => {
     respondToRequest(d, actor("usr-tashi"), req.id, "Attached", []);
     startReview(d, ugyen, tashiCase.id);
     recordVerification(d, ugyen, tashiCase.id, "VERIFIED", "");
-    completeAssessment(d, ugyen, tashiCase.id, "Assessed as filed.");
+    addAdjustment(d, ugyen, tashiCase.id, "Unreported interest", toMinor(100), "Found on bank statement");
+    completeAssessment(d, ugyen, tashiCase.id, "Assessed with one adjustment.");
     expect(tashiCase.status).toBe("COMPLETED");
     expect(tashiCase.noaDocId).toBeTruthy();
-    expect(d.liabilities.some((l) => l.sourceId === tashiCase.id)).toBe(true);
+    // Tashi paid the estimated balance with the return, so only the adjustment is owed.
+    expect(tashiCase.outcome!.prepaidMinor).toBeGreaterThan(0);
+    expect(d.liabilities.find((l) => l.sourceId === tashiCase.id)?.amountMinor).toBe(toMinor(100));
+  });
+});
+
+describe("pay, then submit (version 1 flow)", () => {
+  it("blocks direct submission with a balance, then submits on confirmed payment", () => {
+    const karma = actor("usr-karma");
+    const ret = ensureDraftReturn(d, karma, 2026);
+    const doc = uploadDocument(d, karma, { category: "BANK_STATEMENT", fileName: "s.pdf", mimeType: "application/pdf", sizeBytes: 1000, owner: { kind: "INDIVIDUAL", id: "tp-karma" }, related: { kind: "INDIVIDUAL_RETURN", id: ret.id, incomeSourceId: "s1" } });
+    saveDraft(d, karma, ret.id, { incomeSources: [{ id: "s1", category: "BUSINESS", description: "Consulting", payer: "Client", amountMinor: toMinor(20_000), currency: "USD", periodFrom: "2026-01-01", periodTo: "2026-10-31", classification: "TAXABLE", bankStatementDocId: doc.id, supportingDocIds: [] }], declarationAccepted: true });
+    expect(ret.calculation!.balanceMinor).toBeGreaterThan(0);
+    expect(() => submitReturn(d, karma, ret.id)).toThrow(/Pay the balance/);
+    const p = payAndSubmit(d, karma, ret.id);
+    settlePayment(d, karma, p.id, "PENDING");
+    expect(ret.submissionStatus).toBe("DRAFT");
+    expect(() => saveDraft(d, karma, ret.id, { declarationAccepted: true })).toThrow(/pending/);
+    recheckPayment(d, karma, p.id);
+    expect(ret.submissionStatus).toBe("SUBMITTED");
+    expect(ret.reference).toMatch(/^IIT-2026-/);
   });
 });
 
