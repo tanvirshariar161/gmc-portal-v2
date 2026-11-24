@@ -266,8 +266,10 @@ describe("easy numbers", () => {
   it("pays round salaries that convert to round ngultrum", () => {
     const oct = d.monthlyDeclarations.find((x) => x.companyId === "co-gge" && x.period === "2026-10")!;
     const nu = Object.fromEntries(oct.lines.map((l) => [l.employeeId, l.conversion!.reportingMinor]));
-    expect(nu).toMatchObject({ "emp-karma": toMinor(400_000), "emp-anika": toMinor(300_000), "emp-sonam": toMinor(100_000), "emp-lucas": toMinor(600_000) });
-    expect(oct.lines.find((l) => l.employeeId === "emp-karma")).toMatchObject({ tdsMinor: toMinor(20_000), healthMinor: toMinor(4_000) });
+    expect(nu).toMatchObject({ "emp-karma": toMinor(500_000), "emp-anika": toMinor(1_000_000), "emp-sonam": toMinor(500_000), "emp-lucas": toMinor(3_000_000) });
+    expect(oct.lines.find((l) => l.employeeId === "emp-karma")).toMatchObject({ tdsMinor: toMinor(25_000), healthMinor: toMinor(5_000) });
+    // Totals come out round too: Nu 8,000,000 pay, Nu 250,000 TDS, Nu 80,000 health.
+    expect(oct.calculation!.lines.map((l) => l.amountMinor)).toEqual([toMinor(8_000_000), toMinor(250_000), toMinor(80_000), toMinor(330_000)]);
   });
 });
 
@@ -276,7 +278,7 @@ describe("declaration by pay currency", () => {
     const oct = d.monthlyDeclarations.find((x) => x.companyId === "co-gge" && x.period === "2026-10")!;
     const rows = declarationByCurrency(oct);
     expect(rows.map((r) => r.currency).sort()).toEqual(["BTN", "INR", "SGD", "USD"]);
-    expect(rows.find((r) => r.currency === "USD")).toMatchObject({ employees: 2, payMinor: toMinor(10_000), reportingMinor: toMinor(1_000_000) });
+    expect(rows.find((r) => r.currency === "USD")).toMatchObject({ employees: 2, payMinor: toMinor(25_000), reportingMinor: toMinor(2_500_000) });
     expect(rows.reduce((s, r) => s + r.dueMinor, 0)).toBe(oct.calculation!.balanceMinor);
   });
 });
@@ -309,7 +311,7 @@ describe("return scope", () => {
     const ret = d.individualReturns.find((r) => r.taxpayerId === "tp-karma" && r.year === 2026)!;
     syncDkBankStatement(d, karma, ret.id);
     syncDkBankStatement(d, karma, ret.id);
-    expect(ret.incomeSources.filter((s) => s.statementSource === "DK_BANK").map((s) => [s.category, s.conversion?.reportingMinor])).toEqual([["RENTAL", toMinor(240_000)], ["INTEREST", toMinor(10_000)]]);
+    expect(ret.incomeSources.filter((s) => s.statementSource === "DK_BANK").map((s) => [s.category, s.conversion?.reportingMinor])).toEqual([["RENTAL", toMinor(900_000)], ["INTEREST", toMinor(100_000)]]);
     expect(validateReturn(d, ret).filter((i) => i.step === "income")).toEqual([]);
   });
 
@@ -364,7 +366,7 @@ describe("foreign taxpayer happy path", () => {
     const anika = actor("usr-anika");
     const ret = ensureDraftReturn(d, anika, 2026);
     saveDraft(d, anika, ret.id, { declarationAccepted: true });
-    expect(ret.calculation!.balanceMinor).toBe(toMinor(40_000));
+    expect(ret.calculation!.balanceMinor).toBe(toMinor(170_000));
     settlePayment(d, anika, payAndSubmit(d, anika, ret.id).id, "SUCCESS");
     expect(ret.submissionStatus).toBe("SUBMITTED");
   });

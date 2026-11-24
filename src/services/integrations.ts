@@ -136,8 +136,8 @@ export class SeededDkBankProvider implements PaymentProvider {
       reference: ref("DKBSTM"),
       account: "Savings account ••••4021",
       credits: [
-        { category: "RENTAL", description: "Rent received, Gelephu apartment (Nu 20,000 a month)", payer: "Tenant", amountMinor: 24_000_000, currency: "BTN", periodFrom: `${year}-01-01`, periodTo: `${year}-12-31` },
-        { category: "INTEREST", description: "Savings interest", payer: "DK Bank", amountMinor: 1_000_000, currency: "BTN", periodFrom: `${year}-01-01`, periodTo: `${year}-12-31` }
+        { category: "RENTAL", description: "Rent received, Gelephu apartment (Nu 75,000 a month)", payer: "Tenant", amountMinor: 90_000_000, currency: "BTN", periodFrom: `${year}-01-01`, periodTo: `${year}-12-31` },
+        { category: "INTEREST", description: "Savings interest", payer: "DK Bank", amountMinor: 10_000_000, currency: "BTN", periodFrom: `${year}-01-01`, periodTo: `${year}-12-31` }
       ]
     };
   }

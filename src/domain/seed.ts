@@ -143,8 +143,8 @@ function base(): Db {
 
   const tp = (t: Omit<IndividualTaxpayer, "registeredAt" | "phone" | "address" | "email"> & { email: string }): IndividualTaxpayer => ({ phone: "+975 17 000 000", address: "Gelephu", registeredAt: SEED_AT, ...t });
   const taxpayers: IndividualTaxpayer[] = [
-    tp({ id: "tp-karma", tin: "TIN-000101", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000001", fullName: "Karma Dorji", dateOfBirth: "1988-04-12", nationality: "Bhutanese", email: "karma.dorji@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Site Operations Lead", since: "2025-04-01" } }),
-    tp({ id: "tp-anika", tin: "TIN-000102", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0001", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", email: "anika.rao@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("IMMIGRATION", "IMM-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Senior Engineer", since: "2025-04-01", permitExpiry: "2028-03-31" } }),
+    tp({ id: "tp-karma", tin: "TIN-000101", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000001", fullName: "Karma Dorji", dateOfBirth: "1988-04-12", nationality: "Bhutanese", email: "karma.dorji@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Site Operations Lead", since: "2025-03-01" } }),
+    tp({ id: "tp-anika", tin: "TIN-000102", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0001", fullName: "Anika Rao", dateOfBirth: "1987-02-14", nationality: "Indian", email: "anika.rao@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("IMMIGRATION", "IMM-SIM-SEED01"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Senior Engineer", since: "2025-03-01", permitExpiry: "2028-03-31" } }),
     tp({ id: "tp-sonam", tin: "TIN-000103", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000002", fullName: "Sonam Choden", dateOfBirth: "1992-09-03", nationality: "Bhutanese", email: "sonam.choden@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED02") }),
     tp({ id: "tp-tashi", tin: "TIN-000104", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000005", fullName: "Tashi Namgay", dateOfBirth: "1990-11-30", nationality: "Bhutanese", email: "tashi.namgay@demo.gmca.test", residencyStatus: "NOT_DETERMINED", verification: verified("NDI", "NDI-SIM-SEED03") }),
     tp({ id: "tp-lucas", tin: "TIN-000105", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0002", fullName: "Lucas Tan", dateOfBirth: "1991-07-08", nationality: "Singaporean", email: "lucas.tan@demo.gmca.test", residencyStatus: "NON_RESIDENT", verification: verified("IMMIGRATION", "IMM-SIM-SEED02"), employmentSummary: { employer: "Gelephu Green Energy Pvt Ltd", position: "Finance Manager", since: "2025-09-15", permitExpiry: "2027-12-31" } })
@@ -162,9 +162,9 @@ function base(): Db {
   };
   const employees: Employee[] = [
     emp({ id: "emp-pema", companyId: "co-gge", fullName: "Pema Wangchuk", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000003", position: "Director", startDate: "2025-02-10", status: "ACTIVE", defaultCurrency: "USD" }),
-    emp({ id: "emp-karma", companyId: "co-gge", fullName: "Karma Dorji", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000001", taxpayerId: "tp-karma", position: "Site Operations Lead", startDate: "2025-04-01", status: "ACTIVE", defaultCurrency: "USD" }),
-    emp({ id: "emp-anika", companyId: "co-gge", fullName: "Anika Rao", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0001", taxpayerId: "tp-anika", position: "Senior Engineer", startDate: "2025-04-01", status: "ACTIVE", defaultCurrency: "INR" }),
-    emp({ id: "emp-sonam", companyId: "co-gge", fullName: "Sonam Choden", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000002", taxpayerId: "tp-sonam", position: "HR Officer", startDate: "2025-04-01", status: "ACTIVE", defaultCurrency: "BTN" }),
+    emp({ id: "emp-karma", companyId: "co-gge", fullName: "Karma Dorji", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000001", taxpayerId: "tp-karma", position: "Site Operations Lead", startDate: "2025-03-01", status: "ACTIVE", defaultCurrency: "USD" }),
+    emp({ id: "emp-anika", companyId: "co-gge", fullName: "Anika Rao", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0001", taxpayerId: "tp-anika", position: "Senior Engineer", startDate: "2025-03-01", status: "ACTIVE", defaultCurrency: "INR" }),
+    emp({ id: "emp-sonam", companyId: "co-gge", fullName: "Sonam Choden", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000002", taxpayerId: "tp-sonam", position: "HR Officer", startDate: "2025-03-01", status: "ACTIVE", defaultCurrency: "BTN" }),
     emp({ id: "emp-lucas", companyId: "co-gge", fullName: "Lucas Tan", category: "FOREIGN", identifierType: "WORK_PERMIT", identifierValue: "WP-DEMO-2026-0002", taxpayerId: "tp-lucas", position: "Finance Manager", startDate: "2025-09-15", status: "ACTIVE", defaultCurrency: "SGD" }),
     emp({ id: "emp-jigme", companyId: "co-gge", fullName: "Jigme Tenzin", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000006", position: "Electrician", startDate: "2025-05-01", endDate: "2026-06-30", status: "LEFT", defaultCurrency: "BTN", verified: false }),
     emp({ id: "emp-yeshi", companyId: "co-gge", fullName: "Yeshi Lhamo", category: "CITIZEN", identifierType: "CID", identifierValue: "10000000007", position: "Procurement Assistant", startDate: "2026-02-01", status: "ON_LEAVE", defaultCurrency: "BTN", verified: false }),
@@ -173,7 +173,7 @@ function base(): Db {
   ];
 
   return {
-    schemaVersion: 11,
+    schemaVersion: 12,
     seededAt: new Date().toISOString(),
     counters: {},
     users,
@@ -230,14 +230,15 @@ const actorOf = (d: Db, id: string): Actor => {
 };
 
 const PAY: Record<string, [number, string]> = {
-  // Round amounts that convert to round ngultrum at the rates above.
-  "emp-pema": [6_000, "USD"],
-  "emp-karma": [4_000, "USD"],
-  "emp-anika": [300_000, "INR"],
-  "emp-sonam": [100_000, "BTN"],
-  "emp-lucas": [8_000, "SGD"],
+  // Round amounts that convert to round ngultrum at the rates above, chosen so TDS, health contribution,
+  // net pay and every monthly total come out round too (5% TDS band; 1% health).
+  "emp-pema": [20_000, "USD"],
+  "emp-karma": [5_000, "USD"],
+  "emp-anika": [1_000_000, "INR"],
+  "emp-sonam": [500_000, "BTN"],
+  "emp-lucas": [40_000, "SGD"],
   "emp-jigme": [50_000, "BTN"],
-  "emp-yeshi": [60_000, "BTN"],
+  "emp-yeshi": [1_000_000, "BTN"],
   "emp-maya": [5_000, "EUR"],
   "emp-niran": [100_000, "THB"]
 };
@@ -331,13 +332,13 @@ export function buildSeed(): Db {
   const d = base();
 
   // Employer monthly declarations: paid history, latest month left outstanding for the demo.
-  seedPayroll(d, "usr-pema", "co-gge", "2025-04", "2026-10", ["2026-10"]);
+  seedPayroll(d, "usr-pema", "co-gge", "2025-03", "2026-10", ["2026-10"]);
   seedPayroll(d, "usr-maya", "co-mvh", "2026-01", "2026-10", []);
 
   // Karma Dorji · FY2025: submitted, assessed, paid. The historical example with certificates.
   const k25 = fileIndividual(d, "usr-karma", 2025, "2026-03-14T10:12:00.000Z", [
-    { category: "BUSINESS", description: "Freelance site surveys", payer: "Various clients", amountMinor: k(12_000), currency: "USD", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" },
-    { category: "RENTAL", description: "Apartment rent, Sarpang", payer: "Tenant", amountMinor: k(240_000), currency: "BTN", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" }
+    { category: "BUSINESS", description: "Freelance site surveys", payer: "Various clients", amountMinor: k(16_000), currency: "USD", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" },
+    { category: "RENTAL", description: "Apartment rent, Sarpang", payer: "Tenant", amountMinor: k(600_000), currency: "BTN", periodFrom: "2025-01-01", periodTo: "2025-12-31", classification: "TAXABLE" }
   ], [{ key: "SPOUSE", amount: 200_000, file: "marriage-certificate.pdf" }]);
   assess(d, "usr-ugyen", k25.assessmentId!, [
     { at: "2026-03-20T08:00:00.000Z", to: "ASSIGNED" },
@@ -350,18 +351,19 @@ export function buildSeed(): Db {
     settlePayment(d, a, p.id, "SUCCESS");
   });
 
-  // Karma Dorji · FY2026: draft in progress (live demo continues from here). Employment alone leaves a
-  // Nu 30,000 credit; the freelance income brings it to Nu 40,000 to pay, so "Pay my tax" opens DK Bank.
+  // Karma Dorji · FY2026: draft in progress (live demo continues from here). Employment alone (Nu 5,000,000,
+  // TDS Nu 250,000) leaves a Nu 10,000 credit; the freelance income brings it to Nu 60,000 to pay, so
+  // "Pay my tax" opens DK Bank.
   fileIndividual(d, "usr-karma", 2026, "2026-11-20T15:20:00.000Z", [
     { category: "BUSINESS", description: "Freelance site surveys", payer: "Various clients", amountMinor: k(10_000), currency: "USD", periodFrom: "2026-01-01", periodTo: "2026-10-31", classification: "TAXABLE", statementSource: "UPLOAD" }
   ], [], false);
 
   // Anika Rao (foreign national): happy path. Nothing filed yet; her 2026 return is ready to start with the
-  // employer's declarations filled in (Nu 3,000,000 pay, Nu 60,000 TDS), leaving Nu 40,000 to pay through DK Bank.
+  // employer's declarations filled in (Nu 10,000,000 pay, Nu 500,000 TDS), leaving Nu 170,000 to pay through DK Bank.
 
   // Sonam Choden · FY2026: responded to a request.
   const s26 = fileIndividual(d, "usr-sonam", 2026, "2026-11-05T08:30:00.000Z", [
-    { category: "DIVIDEND", description: "Dividends from a Thimphu company", payer: "Listed company", amountMinor: k(100_000), currency: "BTN", periodFrom: "2026-01-01", periodTo: "2026-09-30", classification: "TAXABLE" }
+    { category: "DIVIDEND", description: "Dividends from a Thimphu company", payer: "Listed company", amountMinor: k(300_000), currency: "BTN", periodFrom: "2026-01-01", periodTo: "2026-09-30", classification: "TAXABLE" }
   ], [{ key: "DISABILITY", amount: 300_000, file: "disability-certificate.pdf" }]);
   assess(d, "usr-ugyen", s26.assessmentId!, [
     { at: "2026-11-06T08:00:00.000Z", to: "ASSIGNED" },
@@ -401,7 +403,7 @@ export function buildSeed(): Db {
       { id: "bs-2", itemKey: "AST_DEPOSITS", description: "Fixed deposit, DK Bank", valueMinor: k(20_000_000), docIds: [fd.id] },
       { id: "bs-3", itemKey: "LIA_BANK_LOANS", description: "Project loan, DK Bank", valueMinor: k(50_000_000), docIds: [] }
     ];
-    saveCorporateDraft(d, pema, r.id, { financials: { revenueMinor: k(250_000_000), otherIncomeMinor: k(5_000_000), expensesMinor: k(150_000_000), adjustments: [{ id: "adj-1", label: "Entertainment expenses added back", amountMinor: k(2_000_000) }] }, balanceSheet, auditedFsDocIds: [fs.id], fixedAssetDocIds: [fa.id], declarationAccepted: true });
+    saveCorporateDraft(d, pema, r.id, { financials: { revenueMinor: k(250_000_000), otherIncomeMinor: k(8_000_000), expensesMinor: k(160_000_000), adjustments: [{ id: "adj-1", label: "Entertainment expenses added back", amountMinor: k(2_000_000) }] }, balanceSheet, auditedFsDocIds: [fs.id], fixedAssetDocIds: [fa.id], declarationAccepted: true });
     submitCorporate(d, pema, r.id);
     return r;
   });
