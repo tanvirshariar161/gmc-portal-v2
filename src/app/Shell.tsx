@@ -19,6 +19,7 @@ import {
   Settings2,
   Layers,
   ShieldCheck,
+  UserCheck,
   Sparkles,
   Sun,
   UserRound,
@@ -86,7 +87,7 @@ const NAV: Record<Role, NavGroup[]> = {
     {
       items: [
         { to: "/admin", label: "Overview", icon: Home, exact: true },
-        { to: "/admin/users", label: "Users & roles", icon: ShieldCheck }
+        { to: "/admin/assignments", label: "Officer assignments", icon: UserCheck }
       ]
     },
     {
@@ -106,6 +107,11 @@ const NAV: Record<Role, NavGroup[]> = {
         { to: "/admin/audit", label: "Audit log", icon: ScrollText },
         { to: "/gmca/reports", label: "Reports", icon: BarChart3 }
       ]
+    }
+  ],
+  SYSADMIN: [
+    {
+      items: [{ to: "/admin/users", label: "Users & roles", icon: ShieldCheck }]
     }
   ]
 };
@@ -191,9 +197,9 @@ export function Shell({ children }: { children: ReactNode }) {
       : user.role === "EMPLOYER"
         ? db.companies.find((c) => c.id === user.companyId)?.name ?? "Employer"
         : `GMCA · ${user.title ?? ROLE_LABEL[user.role]}`;
-  const portal = user.role === "ASSESSOR" || user.role === "ADMIN" ? "GMCA Administration Portal" : "Taxpayer Portal";
+  const portal = user.role === "INDIVIDUAL" || user.role === "EMPLOYER" ? "Taxpayer Portal" : "GMCA Administration Portal";
   const persistError = getPersistError();
-  const messagesPath = user.role === "ASSESSOR" ? "/gmca/notifications" : user.role === "ADMIN" ? "/admin/notifications" : "/messages";
+  const messagesPath = user.role === "ASSESSOR" ? "/gmca/notifications" : user.role === "ADMIN" || user.role === "SYSADMIN" ? "/admin/notifications" : "/messages";
 
   return (
     <div className="flex min-h-screen flex-col">

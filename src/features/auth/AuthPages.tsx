@@ -1,4 +1,4 @@
-import { ArrowRight, Building2, CalendarClock, CheckCircle2, FileCheck2, Globe2, IdCard, ShieldCheck } from "lucide-react";
+import { ArrowRight, Building2, CalendarClock, CheckCircle2, FileCheck2, Globe2, IdCard, MessageSquareText, ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { Link, navigate, useDb, useDocumentTitle, useRunPublic, useSession } from "../../app/core";
@@ -8,12 +8,12 @@ import type { User } from "../../domain/types";
 import { formatDate } from "../../lib/format";
 import { cn } from "../../lib/utils";
 import type { ImmigrationRecord, LookupResult, NdiRecord, RegistryRecord } from "../../services/integrations";
-import { lookupCitizen, lookupCompany, lookupForeign, registerCitizen, registerCompany, registerForeign } from "../../services/registration";
+import { checkNewContact, checkRepresentative, lookupCitizen, lookupCompany, lookupForeign, registerCitizen, registerCompany, registerForeign } from "../../services/registration";
 import { Button } from "../../shared/gmc/Button";
 import { Alert, Eyebrow, IconTile } from "../../shared/gmc/Layout";
 import { DemoQr } from "../../shared/gmc/Qr";
-import { checkCredentials, needsNdiApproval, SAMPLE_PASSWORD, startNdiSignIn } from "../../services/auth";
-import type { NdiSignInRequest } from "../../services/auth";
+import { checkCredentials, issueOtp, maskDestination, otpDestination, SAMPLE_PASSWORD, signInFactor, startNdiSignIn, verifyOtp } from "../../services/auth";
+import type { NdiSignInRequest, OtpChallenge } from "../../services/auth";
 import { RadioGroup, TextField } from "../../shared/gmc/Form";
 import { Stepper } from "../../shared/gmc/Stepper";
 import { KeyValue } from "../shared/ui";
@@ -37,7 +37,9 @@ function PublicFrame({ children, wide }: { children: ReactNode; wide?: boolean }
   );
 }
 
-type Pending = { user: User; request: NdiSignInRequest };
+/** Second sign-in step: Bhutan NDI for citizens, a one-time code for foreign nationals and representatives. */
+type Pending = { kind: "NDI"; user: User; request: NdiSignInRequest } | { kind: "OTP"; user: User };
+type NdiPending = Extract<Pending, { kind: "NDI" }>;
 
 /**
  * Sign-in layout under review: "V2" is the split screen (brand panel left, sign-in right), "V1" the
@@ -45,11 +47,18 @@ type Pending = { user: User; request: NdiSignInRequest };
  */
 const SIGN_IN_LAYOUT: "V1" | "V2" = "V2";
 
-/** Sign in with email and password. Individual taxpayers then approve the sign-in in the Bhutan NDI app. */
+/** Sign in with email and password, then confirm with Bhutan NDI (citizens) or a one-time code (foreign nationals, representatives). */
 export function LoginPage() {
   useDocumentTitle("Sign in");
   const [pending, setPending] = useState<Pending | null>(null);
-  const form = pending ? <NdiApproval pending={pending} onCancel={() => setPending(null)} onRetry={(request) => setPending({ ...pending, request })} /> : <CredentialsForm onNdi={setPending} />;
+  const form =
+    pending?.kind === "NDI" ? (
+      <NdiApproval pending={pending} onCancel={() => setPending(null)} onRetry={(request) => setPending({ ...pending, request })} />
+    ) : pending?.kind === "OTP" ? (
+      <OtpSignIn user={pending.user} onCancel={() => setPending(null)} />
+    ) : (
+      <CredentialsForm onSecondStep={setPending} />
+    );
   return SIGN_IN_LAYOUT === "V2" ? <SignInV2 form={form} /> : <SignInV1 form={form} />;
 }
 
@@ -65,7 +74,7 @@ function SignInIntro({ onDark }: { onDark?: boolean }) {
         {[
           { icon: FileCheck2, text: "Returns pre-filled from employer declarations" },
           { icon: CalendarClock, text: "Every deadline with a countdown" },
-          { icon: ShieldCheck, text: "Taxpayer sign-in confirmed with Bhutan NDI" }
+          { icon: ShieldCheck, text: "Sign-in confirmed with Bhutan NDI or a one-time code" }
         ].map((item) => (
           <li key={item.text} className={cn("flex items-start gap-3 text-sm", onDark ? "text-white/85" : "text-fg-2")}>
             <IconTile icon={item.icon} size={28} tone={onDark ? "onGreen" : "brand"} />
@@ -109,7 +118,7 @@ function SignInV2({ form }: { form: ReactNode }) {
   );
 }
 
-function CredentialsForm({ onNdi }: { onNdi: (p: Pending) => void }) {
+function CredentialsForm({ onSecondStep }: { onSecondStep: (p: Pending) => void }) {
   const db = useDb();
   const { signIn } = useSession();
   const [email, setEmail] = useState("");
@@ -127,7 +136,9 @@ function CredentialsForm({ onNdi }: { onNdi: (p: Pending) => void }) {
       setError(err instanceof ServiceError ? err.message : "Sign-in failed. Try again.");
       return;
     }
-    if (needsNdiApproval(user)) onNdi({ user, request: startNdiSignIn(db, user) });
+    const factor = signInFactor(db, user);
+    if (factor === "NDI") onSecondStep({ kind: "NDI", user, request: startNdiSignIn(db, user) });
+    else if (factor === "OTP") onSecondStep({ kind: "OTP", user });
     else signIn(user.id);
   }
 
@@ -136,7 +147,7 @@ function CredentialsForm({ onNdi }: { onNdi: (p: Pending) => void }) {
       <h2 id="signin" className="font-serif text-[1.875rem] leading-tight">
         Sign in
       </h2>
-      <p className="text-[15px] leading-relaxed text-muted">Use your GMC account. Taxpayers confirm each sign-in in the Bhutan NDI app, so a password alone can't open your tax records.</p>
+      <p className="text-[15px] leading-relaxed text-muted">Use your GMC account. Bhutanese citizens then confirm in the Bhutan NDI app; foreign nationals and company representatives enter a one-time code sent to their phone. A password alone can't open your tax records.</p>
       {error ? (
         <Alert tone="rejected" title="Couldn't sign you in">
           {error}
@@ -184,11 +195,15 @@ function CredentialsForm({ onNdi }: { onNdi: (p: Pending) => void }) {
 type NdiPhase = "WAITING" | "SCANNED" | "APPROVED";
 
 /**
- * Second step for individual taxpayers: scan the code with the Bhutan NDI app and approve.
- * The simulated wallet scans within a second and approves about a second later; the account
+ * Second step for Bhutanese citizens: scan the code with the Bhutan NDI app and approve.
+ * The simulated wallet scans after 1.4 seconds and approves 0.7 seconds later; the account
  * opens only once the approval arrives.
  */
-function NdiApproval({ pending, onCancel, onRetry }: { pending: Pending; onCancel: () => void; onRetry: (r: NdiSignInRequest) => void }) {
+const NDI_SCAN_MS = 1400;
+const NDI_APPROVE_MS = 2100;
+const NDI_SIGN_IN_MS = 2600;
+
+function NdiApproval({ pending, onCancel, onRetry }: { pending: NdiPending; onCancel: () => void; onRetry: (r: NdiSignInRequest) => void }) {
   const db = useDb();
   const { signIn } = useSession();
   const { user, request } = pending;
@@ -198,10 +213,10 @@ function NdiApproval({ pending, onCancel, onRetry }: { pending: Pending; onCance
   useEffect(() => {
     setPhase("WAITING");
     if (request.status === "UNAVAILABLE") return;
-    const scan = window.setTimeout(() => setPhase("SCANNED"), 900);
+    const scan = window.setTimeout(() => setPhase("SCANNED"), NDI_SCAN_MS);
     if (request.status === "NO_MATCH") return () => window.clearTimeout(scan);
-    const approve = window.setTimeout(() => setPhase("APPROVED"), 1600);
-    const done = window.setTimeout(() => signIn(user.id), 2100);
+    const approve = window.setTimeout(() => setPhase("APPROVED"), NDI_APPROVE_MS);
+    const done = window.setTimeout(() => signIn(user.id), NDI_SIGN_IN_MS);
     return () => [scan, approve, done].forEach((t) => window.clearTimeout(t));
   }, [request, user.id, signIn]);
 
@@ -269,12 +284,141 @@ function NdiApproval({ pending, onCancel, onRetry }: { pending: Pending; onCance
   );
 }
 
+/** Second sign-in step for foreign nationals and company representatives, who have no NDI identity. */
+function OtpSignIn({ user, onCancel }: { user: User; onCancel: () => void }) {
+  const db = useDb();
+  const { signIn } = useSession();
+  return (
+    <section aria-labelledby="otp" className="panel grid gap-6 p-6 sm:p-10">
+      <div className="grid gap-2">
+        <p className="text-sm text-muted">Step 2 of 2</p>
+        <h2 id="otp" className="font-serif text-[1.875rem] leading-tight">
+          Enter your one-time code
+        </h2>
+        <p className="text-[15px] leading-relaxed text-muted">Your password is right. To keep your tax records private, confirm it's you with the code we sent to your phone.</p>
+      </div>
+      <OtpVerification destination={otpDestination(db, user)} submitLabel="Verify and sign in" onVerified={() => signIn(user.id)} />
+      <div className="grid gap-1 border-t border-line-soft pt-4 text-sm">
+        <p>
+          Signing in as <span className="font-medium">{user.name}</span>
+        </p>
+      </div>
+      <div>
+        <Button variant="secondary" onClick={onCancel}>
+          Use a different account
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+const SMS_DELIVERY_MS = 1200;
+const RESEND_AFTER_S = 30;
+
+/**
+ * One-time code check, shared by sign-in and sign-up. The SMS is simulated: the message appears on
+ * the page a moment after the code is issued. Codes expire after 5 minutes and allow 3 tries.
+ */
+function OtpVerification({ destination, submitLabel, onVerified }: { destination: string; submitLabel: string; onVerified: () => void }) {
+  const [challenge, setChallenge] = useState<OtpChallenge>(() => issueOtp(destination));
+  const [delivered, setDelivered] = useState(false);
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string>();
+  const [wait, setWait] = useState(RESEND_AFTER_S);
+  const locked = challenge.attemptsLeft <= 0;
+
+  useEffect(() => {
+    setDelivered(false);
+    const t = window.setTimeout(() => setDelivered(true), SMS_DELIVERY_MS);
+    return () => window.clearTimeout(t);
+  }, [challenge.reference]);
+
+  useEffect(() => {
+    if (wait <= 0) return;
+    const t = window.setTimeout(() => setWait(wait - 1), 1000);
+    return () => window.clearTimeout(t);
+  }, [wait]);
+
+  function resend() {
+    setChallenge(issueOtp(destination));
+    setCode("");
+    setError(undefined);
+    setWait(RESEND_AFTER_S);
+  }
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const r = verifyOtp(challenge, code);
+    if (r.ok) return onVerified();
+    setChallenge(r.challenge);
+    setError(
+      r.reason === "EMPTY"
+        ? "Enter the 6-digit code."
+        : r.reason === "EXPIRED"
+          ? "This code has expired. Send a new code."
+          : r.reason === "LOCKED"
+            ? "Too many wrong codes. Send a new code to try again."
+            : `That code isn't right. ${r.challenge.attemptsLeft} ${r.challenge.attemptsLeft === 1 ? "try" : "tries"} left.`
+    );
+  }
+
+  return (
+    <div className="grid gap-5">
+      <p className="text-[15px]">
+        We sent a 6-digit code by SMS to <span className="num font-medium">{maskDestination(destination)}</span>. It expires in 5 minutes.
+      </p>
+      <div role="status" aria-live="polite">
+        {delivered ? (
+          <div className="flex gap-3 border border-line bg-sunk px-4 py-3 text-sm">
+            <MessageSquareText aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-brand-ink" />
+            <p className="grid gap-1">
+              <span className="text-xs uppercase tracking-[0.08em] text-muted">Simulated SMS · GMCA</span>
+              <span>
+                <span className="num font-medium">{challenge.code}</span> is your GMCA Income Tax verification code. It expires in 5 minutes. Don't share it.{" "}
+                <button type="button" className="text-brand-ink underline underline-offset-4" onClick={() => { setCode(challenge.code); setError(undefined); }}>
+                  Fill in
+                </button>
+              </span>
+            </p>
+          </div>
+        ) : (
+          <p className="flex items-center gap-3 border border-line bg-sunk px-4 py-3 text-sm">
+            <span className="spinner text-brand-ink" aria-hidden="true" />
+            Sending the code…
+          </p>
+        )}
+      </div>
+      <form className="grid gap-4" onSubmit={submit} noValidate>
+        <TextField
+          label="6-digit code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          className="max-w-[12rem]"
+          value={code}
+          error={error}
+          disabled={locked}
+          onChange={(e) => { setCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(undefined); }}
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="submit" disabled={locked}>
+            {submitLabel}
+          </Button>
+          <Button variant="ghost" disabled={wait > 0 && !locked} onClick={resend}>
+            {wait > 0 && !locked ? `Send a new code in ${wait}s` : "Send a new code"}
+          </Button>
+        </div>
+      </form>
+      <p className="text-xs text-muted">Reference {challenge.reference}.</p>
+    </div>
+  );
+}
+
 export function RegisterChooser() {
   useDocumentTitle("Register");
   const options = [
     { to: "/register/citizen", icon: IdCard, title: "Individual · Bhutanese citizen", body: "Verify with your Citizenship ID through NDI." },
-    { to: "/register/foreign", icon: Globe2, title: "Individual · Foreign national", body: "Verify with your work permit or passport through the Immigration System." },
-    { to: "/register/company", icon: Building2, title: "Company / Employer", body: "Look up your company or sole proprietorship by its registration number." }
+    { to: "/register/foreign", icon: Globe2, title: "Individual · Foreign national", body: "Verify with your work permit or passport through the Immigration System, then confirm your phone with a one-time code." },
+    { to: "/register/company", icon: Building2, title: "Company / Employer", body: "Look up your company or sole proprietorship by its registration number, then confirm the representative's phone with a one-time code." }
   ];
   return (
     <PublicFrame>
@@ -346,6 +490,11 @@ const STEPS = [
   { key: "confirm", label: "Confirm details" },
   { key: "contact", label: "Contact details" }
 ];
+
+/** Foreign nationals have no NDI identity, so their phone is confirmed with a one-time code instead. */
+const FOREIGN_STEPS = [...STEPS, { key: "verify", label: "Verify phone" }];
+
+type ContactDetails = { email: string; phone: string; address: string };
 
 export function RegisterCitizen() {
   useDocumentTitle("Register · Citizen");
@@ -422,7 +571,8 @@ export function RegisterForeign() {
   const [identifier, setIdentifier] = useState("");
   const [result, setResult] = useState<LookupResult<ImmigrationRecord> | null>(null);
   const [confirmed, setConfirmed] = useState(false);
-  const step = !result || result.status !== "MATCH" ? "identify" : confirmed ? "contact" : "confirm";
+  const [contact, setContact] = useState<ContactDetails | null>(null);
+  const step = !result || result.status !== "MATCH" ? "identify" : !confirmed ? "confirm" : contact ? "verify" : "contact";
   return (
     <PublicFrame>
       <div className="grid gap-8">
@@ -432,7 +582,7 @@ export function RegisterForeign() {
           </Link>
           <h1 className="display text-[2.25rem]">Register as a foreign national</h1>
         </div>
-        <Stepper steps={STEPS} current={step} />
+        <Stepper steps={FOREIGN_STEPS} current={step} />
         {step === "identify" ? (
           <form
             className="grid gap-5"
@@ -480,13 +630,24 @@ export function RegisterForeign() {
           </div>
         ) : null}
         {step === "contact" && result?.status === "MATCH" ? (
-          <ContactStep
-            busyLabel="Create my tax account"
-            onSubmit={(c) => {
-              const user = runPublic((d) => registerForeign(d, result.record, result.reference, c));
-              if (user) signIn(user.id);
-            }}
-          />
+          <ContactStep initialEmail={contact?.email} busyLabel="Send verification code" onSubmit={(c) => { if (runPublic((d) => { checkNewContact(d, c); return true; })) setContact(c); }} />
+        ) : null}
+        {step === "verify" && result?.status === "MATCH" && contact ? (
+          <div className="grid gap-5">
+            <OtpVerification
+              destination={contact.phone}
+              submitLabel="Verify and create my tax account"
+              onVerified={() => {
+                const user = runPublic((d) => registerForeign(d, result.record, result.reference, contact));
+                if (user) signIn(user.id);
+              }}
+            />
+            <div>
+              <Button variant="secondary" onClick={() => setContact(null)}>
+                Change contact details
+              </Button>
+            </div>
+          </div>
         ) : null}
       </div>
     </PublicFrame>
@@ -502,7 +663,8 @@ export function RegisterCompany() {
   const [result, setResult] = useState<LookupResult<RegistryRecord> | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [rep, setRep] = useState({ name: "", designation: "", email: "", phone: "" });
-  const step = !result || result.status !== "MATCH" ? "identify" : confirmed ? "contact" : "confirm";
+  const [repDone, setRepDone] = useState(false);
+  const step = !result || result.status !== "MATCH" ? "identify" : !confirmed ? "confirm" : repDone ? "verify" : "contact";
   const already = result?.status === "MATCH" && db.companies.some((c) => c.uen === result.record.uen);
   return (
     <PublicFrame>
@@ -513,7 +675,7 @@ export function RegisterCompany() {
           </Link>
           <h1 className="display text-[2.25rem]">Register a company or sole proprietorship</h1>
         </div>
-        <Stepper steps={[{ key: "identify", label: "Find company" }, { key: "confirm", label: "Confirm details" }, { key: "contact", label: "Representative" }]} current={step} />
+        <Stepper steps={[{ key: "identify", label: "Find company" }, { key: "confirm", label: "Confirm details" }, { key: "contact", label: "Representative" }, { key: "verify", label: "Verify phone" }]} current={step} />
         {step === "identify" ? (
           <form
             className="grid gap-5"
@@ -565,8 +727,7 @@ export function RegisterCompany() {
             className="grid gap-5"
             onSubmit={(e) => {
               e.preventDefault();
-              const user = runPublic((d) => registerCompany(d, result.record, result.reference, rep));
-              if (user) signIn(user.id);
+              if (runPublic((d) => { checkRepresentative(d, rep); return true; })) setRepDone(true);
             }}
           >
             <TextField label="Representative's full name" required autoComplete="name" value={rep.name} onChange={(e) => setRep({ ...rep, name: e.target.value })} />
@@ -574,9 +735,26 @@ export function RegisterCompany() {
             <TextField label="Work email" type="email" required autoComplete="email" value={rep.email} onChange={(e) => setRep({ ...rep, email: e.target.value })} />
             <TextField label="Phone" type="tel" required autoComplete="tel" value={rep.phone} onChange={(e) => setRep({ ...rep, phone: e.target.value })} />
             <div>
-              <Button type="submit">Create company account</Button>
+              <Button type="submit">Send verification code</Button>
             </div>
           </form>
+        ) : null}
+        {step === "verify" && result?.status === "MATCH" ? (
+          <div className="grid gap-5">
+            <OtpVerification
+              destination={rep.phone}
+              submitLabel="Verify and create company account"
+              onVerified={() => {
+                const user = runPublic((d) => registerCompany(d, result.record, result.reference, rep));
+                if (user) signIn(user.id);
+              }}
+            />
+            <div>
+              <Button variant="secondary" onClick={() => setRepDone(false)}>
+                Change representative details
+              </Button>
+            </div>
+          </div>
         ) : null}
       </div>
     </PublicFrame>

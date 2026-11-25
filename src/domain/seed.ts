@@ -7,6 +7,7 @@ import { ensureCorporateDraft, ensureDeclaration, saveCorporateDraft, saveDeclar
 import { addAdjustment, assignToMe, completeAssessment, recordVerification, requestInformation, respondToRequest, startReview, addNote } from "../services/assessment";
 import { initiatePayment, settlePayment } from "../services/payments";
 import { toMinor } from "../lib/money";
+import { setOrganizationOfficer } from "../services/assignments";
 
 /**
  * Fictional demonstration data. Identifiers use obviously synthetic patterns
@@ -133,7 +134,8 @@ function base(): Db {
     { id: "usr-anika", name: "Anika Rao", email: "anika.rao@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-anika", createdAt: SEED_AT, demoLabel: "Foreign taxpayer" },
     { id: "usr-pema", name: "Pema Wangchuk", email: "pema@gge.demo.test", role: "EMPLOYER", status: "ACTIVE", companyId: "co-gge", title: "Director", createdAt: SEED_AT, demoLabel: "Representatives" },
     { id: "usr-ugyen", name: "Ugyen Tshering", email: "ugyen.tshering@gmca.demo.test", role: "ASSESSOR", status: "ACTIVE", title: "Tax Officer (Assessment)", createdAt: SEED_AT, demoLabel: "GMCA Tax Officer" },
-    { id: "usr-admin", name: "Deki Pelden", email: "deki.pelden@gmca.demo.test", role: "ADMIN", status: "ACTIVE", title: "System Administrator", createdAt: SEED_AT, demoLabel: "GMCA Administrator" },
+    { id: "usr-admin", name: "Deki Pelden", email: "deki.pelden@gmca.demo.test", role: "ADMIN", status: "ACTIVE", title: "Tax Administrator", createdAt: SEED_AT, demoLabel: "GMCA Tax Administrator" },
+    { id: "usr-sysadmin", name: "Tandin Wangdi", email: "tandin.wangdi@gmca.demo.test", role: "SYSADMIN", status: "ACTIVE", title: "System Administrator", createdAt: SEED_AT, demoLabel: "GMCA System Admin" },
     { id: "usr-sonam", name: "Sonam Choden", email: "sonam.choden@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-sonam", createdAt: SEED_AT },
     { id: "usr-tashi", name: "Tashi Namgay", email: "tashi.namgay@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-tashi", createdAt: SEED_AT },
     { id: "usr-lucas", name: "Lucas Tan", email: "lucas.tan@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-lucas", createdAt: SEED_AT },
@@ -173,7 +175,7 @@ function base(): Db {
   ];
 
   return {
-    schemaVersion: 12,
+    schemaVersion: 13,
     seededAt: new Date().toISOString(),
     counters: {},
     users,
@@ -187,6 +189,7 @@ function base(): Db {
     monthlyDeclarations: [],
     corporateReturns: [],
     assessments: [],
+    officerAssignments: [],
     infoRequests: [],
     liabilities: [],
     payments: [],
@@ -432,6 +435,14 @@ export function buildSeed(): Db {
     { at: "2026-07-05T08:00:00.000Z", to: "UNDER_REVIEW" },
     { at: "2026-11-16T08:00:00.000Z", to: "INFO", info: ["The fixed asset report lists kitchen equipment bought in 2024, before incorporation. Please explain how these assets were acquired.", ["Purchase invoices or transfer agreement"]] }
   ]);
+
+  // Officer assignments, recorded after the history above so earlier cases keep the officer who picked them up.
+  // From here on, returns from these organizations and their employees go straight to their officer.
+  const deki = actorOf(d, "usr-admin");
+  withClock("2026-11-01T08:00:00.000Z", () => {
+    setOrganizationOfficer(d, deki, "co-gge", "usr-ugyen");
+    setOrganizationOfficer(d, deki, "co-mvh", "usr-kinley");
+  });
 
   // Older notifications count as read so the demo inbox shows only recent activity.
   for (const n of d.notifications) if (n.createdAt < "2026-11-01") n.readBy = ["*"];

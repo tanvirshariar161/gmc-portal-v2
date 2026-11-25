@@ -1,14 +1,17 @@
-import { Check, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Check, FileSpreadsheet, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useState } from "react";
+import type { FormEvent } from "react";
 import { Link, useActor, useDb, useDocumentTitle, useRun, useToast } from "../../app/core";
 import { PERMISSIONS, ROLE_LABEL, ROLE_PERMISSIONS } from "../../domain/permissions";
 import { resetDemoData } from "../../domain/store";
-import type { Band, BankMode, Db, IntegrationMode, ReliefRule, Role, TaxRuleSet } from "../../domain/types";
+import type { Band, BankMode, Db, IntegrationMode, ReliefRule, Role, StaffRole, TaxRuleSet } from "../../domain/types";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { formatMoney, formatRate, minorToInput, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
-import { addCurrency, addExchangeRate, createStaffUser, publishRuleSet, recordIncentive, revokeIncentive, setBankMode, setCurrencyEnabled, setIntegrationMode, setPlatformSetting, setStaffRole, setUserStatus } from "../../services/admin";
+import { addCurrency, addExchangeRate, createStaffUser, publishRuleSet, recordIncentive, revokeIncentive, setBankMode, setCurrencyEnabled, setIntegrationMode, setPlatformSetting, setStaffRole, setUserStatus, STAFF_ROLES } from "../../services/admin";
+import { assignmentFor, organizationsOf, setOrganizationOfficer } from "../../services/assignments";
 import { ruleSetForYear } from "../../services/calc";
+import { buildRuleWorkbook, type WorkbookFocus } from "../../services/ruleWorkbook";
 import { today } from "../../services/clock";
 import { Button } from "../../shared/gmc/Button";
 import { Checkbox, SelectField, TextArea, TextField } from "../../shared/gmc/Form";
@@ -23,16 +26,16 @@ export function AdminOverview() {
   useDocumentTitle("Administration");
   const db = useDb();
   const active = ruleSetForYear(db.ruleSets, db.config.currentFilingYear);
-  const lastConfig = db.audit.filter((e) => ["RULESET_PUBLISHED", "INCENTIVE_RECORDED", "EXCHANGE_RATE_ADDED", "SETTINGS_UPDATED", "INTEGRATION_MODE", "ROLE_CHANGED", "USER_CREATED"].includes(e.action)).slice(0, 6);
+  const lastConfig = db.audit.filter((e) => ["RULESET_PUBLISHED", "INCENTIVE_RECORDED", "EXCHANGE_RATE_ADDED", "SETTINGS_UPDATED", "INTEGRATION_MODE", "OFFICER_ASSIGNED", "OFFICER_UNASSIGNED"].includes(e.action)).slice(0, 6);
   const forced = Object.entries(db.config.integrations).filter(([k, v]) => k !== "pendingResolvesTo" && v !== "SEEDED" && v !== "CHOOSE");
   return (
     <>
-      <PageHeader title="System administration" lead="Accounts, tax configuration and integration settings. Administrators don't assess returns and can't change a submitted declaration." />
+      <PageHeader title="Tax administration" lead="Tax rules, officer assignments and integration settings. Tax administrators don't assess returns, manage user accounts or change a submitted declaration." />
       {forced.length ? <Alert tone="action" title="An integration is not in its default mode">{forced.map(([k, v]) => `${k}: ${String(v).toLowerCase().replace(/_/g, " ")}`).join(" · ")}. <Link className="underline" to="/admin/integrations">Change</Link></Alert> : null}
       <MetricStrip
         items={[
-          { label: "User accounts", value: db.users.length, hint: `${db.users.filter((u) => u.status === "DEACTIVATED").length} deactivated` },
-          { label: "GMCA officers", value: db.users.filter((u) => u.role === "ASSESSOR").length },
+          { label: "GMCA officers", value: db.users.filter((u) => u.role === "ASSESSOR" && u.status === "ACTIVE").length },
+          { label: "Organizations with an officer", value: `${db.officerAssignments.length} of ${db.companies.length}`, hint: "Officer assignments" },
           { label: "Active rule set", value: active.version },
           { label: "Reporting currency", value: db.config.reportingCurrency, hint: `${db.config.currencies.filter((c) => c.enabled).length} currencies enabled` }
         ]}
@@ -77,11 +80,11 @@ export function UsersPage() {
   const actor = useActor();
   const run = useRun();
   const [role, setRole] = useState<"ALL" | Role>("ALL");
-  const [form, setForm] = useState({ name: "", email: "", role: "ASSESSOR" as "ASSESSOR" | "ADMIN", title: "" });
+  const [form, setForm] = useState({ name: "", email: "", role: "ASSESSOR" as StaffRole, title: "" });
   const users = db.users.filter((u) => role === "ALL" || u.role === role);
   return (
     <>
-      <PageHeader title="Users & roles" lead="Create officer accounts, change staff roles and deactivate accounts. Taxpayer and employer accounts come from registration." />
+      <PageHeader title="Users & roles" lead="Create GMCA staff accounts, change staff roles and deactivate accounts. Taxpayer and employer accounts come from registration. Tax rules and officer assignments belong to the GMCA Tax Administrator." />
       <Section title="Accounts" actions={<SelectField label="Role" value={role} onChange={(e) => setRole(e.target.value as typeof role)} className="w-64"><option value="ALL">All roles</option>{(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</SelectField>}>
         <DataTable
           caption="User accounts"
@@ -94,10 +97,9 @@ export function UsersPage() {
               key: "r",
               header: "Role",
               cell: (u) =>
-                (u.role === "ASSESSOR" || u.role === "ADMIN") && u.id !== actor.id ? (
-                  <select aria-label={`Role for ${u.name}`} className="control h-8 w-56 text-sm" value={u.role} onChange={(e) => run((d, a) => setStaffRole(d, a, u.id, e.target.value as "ASSESSOR" | "ADMIN"), "Role changed")}>
-                    <option value="ASSESSOR">{ROLE_LABEL.ASSESSOR}</option>
-                    <option value="ADMIN">{ROLE_LABEL.ADMIN}</option>
+                STAFF_ROLES.includes(u.role as StaffRole) && u.id !== actor.id ? (
+                  <select aria-label={`Role for ${u.name}`} className="control h-8 w-56 text-sm" value={u.role} onChange={(e) => run((d, a) => setStaffRole(d, a, u.id, e.target.value as StaffRole), "Role changed")}>
+                    {STAFF_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
                   </select>
                 ) : (
                   ROLE_LABEL[u.role]
@@ -110,7 +112,7 @@ export function UsersPage() {
           ]}
         />
       </Section>
-      <Section title="Create an officer account">
+      <Section title="Create a staff account">
         <form
           className="grid max-w-3xl gap-4 sm:grid-cols-2"
           onSubmit={(e) => {
@@ -120,9 +122,8 @@ export function UsersPage() {
         >
           <TextField label="Full name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           <TextField label="Email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <SelectField label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as "ASSESSOR" | "ADMIN" })}>
-            <option value="ASSESSOR">{ROLE_LABEL.ASSESSOR}</option>
-            <option value="ADMIN">{ROLE_LABEL.ADMIN}</option>
+          <SelectField label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as StaffRole })}>
+            {STAFF_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
           </SelectField>
           <TextField label="Job title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
           <div className="sm:col-span-2">
@@ -150,6 +151,94 @@ export function UsersPage() {
             </tbody>
           </table>
         </div>
+      </Section>
+    </>
+  );
+}
+
+// ---------- Officer assignments ----------
+
+export function AssignmentsPage() {
+  useDocumentTitle("Officer assignments");
+  const db = useDb();
+  const run = useRun();
+  const officers = db.users.filter((u) => u.role === "ASSESSOR");
+  const activeOfficers = officers.filter((u) => u.status === "ACTIVE");
+  const companyName = (id: string) => db.companies.find((c) => c.id === id)?.name ?? id;
+  const taxpayersOf = (companyId: string) => new Set(db.employees.filter((e) => e.companyId === companyId && e.taxpayerId && e.status !== "LEFT").map((e) => e.taxpayerId!));
+  const openCases = (companyId: string) => {
+    const people = taxpayersOf(companyId);
+    return db.assessments.filter((a) => a.status !== "COMPLETED" && (a.owner.kind === "COMPANY" ? a.owner.id === companyId : people.has(a.owner.id))).length;
+  };
+  return (
+    <>
+      <PageHeader
+        title="Officer assignments"
+        lead="Assign a GMCA tax officer to each organization. Returns from the organization, and from the individuals it employs, go straight to that officer when they are submitted. One officer can cover several organizations."
+      />
+      <Section title="Organizations" description="Changing the officer also moves the organization's open cases that nobody has picked up yet. Cases already in progress stay with their officer.">
+        <DataTable
+          caption="Organizations and their tax officers"
+          rows={db.companies}
+          rowKey={(c) => c.id}
+          minWidth="52rem"
+          empty="No organizations are registered yet."
+          columns={[
+            { key: "n", header: "Organization", cell: (c) => <span className="grid"><span className="font-medium">{c.name}</span><span className="num text-xs text-muted">{c.uen} · {c.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship" : "Company"}</span></span> },
+            { key: "p", header: "Employees with tax accounts", cell: (c) => <span className="num">{taxpayersOf(c.id).size}</span> },
+            { key: "c", header: "Open cases", cell: (c) => <span className="num">{openCases(c.id)}</span> },
+            {
+              key: "o",
+              header: "Tax officer",
+              cell: (c) => {
+                const current = assignmentFor(db, c.id);
+                return (
+                  <select
+                    aria-label={`Tax officer for ${c.name}`}
+                    className="control h-9 w-64 text-sm"
+                    value={current?.officerId ?? ""}
+                    onChange={(e) => {
+                      const officerId = e.target.value || null;
+                      run((d, a) => setOrganizationOfficer(d, a, c.id, officerId), officerId ? `${userName(db, officerId)} assigned to ${c.name}` : `${c.name} has no assigned officer now`);
+                    }}
+                  >
+                    <option value="">Not assigned</option>
+                    {activeOfficers.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    {current && !activeOfficers.some((o) => o.id === current.officerId) ? <option value={current.officerId}>{userName(db, current.officerId)} (deactivated)</option> : null}
+                  </select>
+                );
+              }
+            },
+            { key: "w", header: "Assigned", cell: (c) => { const a = assignmentFor(db, c.id); return a ? <span className="text-xs">{formatDate(a.assignedAt)} · {userName(db, a.assignedBy)}</span> : <span className="text-xs text-muted">—</span>; } }
+          ]}
+        />
+      </Section>
+      <Section title="Officers" description="Who covers what. Individuals are assessed by the officer of the organization that employs them.">
+        <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {officers.map((o) => {
+            const orgs = organizationsOf(db, o.id);
+            const mine = db.assessments.filter((a) => a.assignedTo === o.id && a.status !== "COMPLETED").length;
+            return (
+              <li key={o.id} className="grid content-start gap-3 border border-line bg-surface p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <span className="grid">
+                    <span className="font-medium">{o.name}</span>
+                    <span className="text-sm text-muted">{o.title ?? ROLE_LABEL.ASSESSOR}</span>
+                  </span>
+                  {o.status !== "ACTIVE" ? <StatusBadge tone="neutral">Deactivated</StatusBadge> : null}
+                </div>
+                <p className="text-sm"><span className="num font-medium">{mine}</span> open {mine === 1 ? "case" : "cases"} assigned</p>
+                {orgs.length ? (
+                  <ul className="grid gap-1 text-sm">
+                    {orgs.map((id) => <li key={id} className="flex gap-2"><span aria-hidden="true" className="mt-2 size-1.5 shrink-0 rounded-full bg-primary" />{companyName(id)}</li>)}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted">No organizations yet.</p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       </Section>
     </>
   );
@@ -203,44 +292,68 @@ export function TaxConfigPage() {
   useDocumentTitle("Tax configuration");
   const db = useDb();
   const [year, setYear] = useState(db.config.currentFilingYear);
-  const [yearInput, setYearInput] = useState(String(db.config.currentFilingYear));
-  const configured = [...new Set(db.ruleSets.map((r) => r.effectiveFromYear))].sort((a, b) => a - b);
+  // Years the administrator added in this visit that have no published rules yet.
+  const [added, setAdded] = useState<number[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [yearInput, setYearInput] = useState("");
+  const configured = [...new Set(db.ruleSets.map((r) => r.effectiveFromYear))];
+  const years = [...new Set([...configured, ...added])].sort((a, b) => a - b);
   const active = ruleSetForYear(db.ruleSets, year);
   const inherited = active.effectiveFromYear !== year;
-  const yearError = !/^\d{4}$/.test(yearInput) || Number(yearInput) < MIN_RULE_YEAR || Number(yearInput) > MAX_RULE_YEAR ? `Enter a year from ${MIN_RULE_YEAR} to ${MAX_RULE_YEAR}` : undefined;
-  const pick = (y: number) => {
+  const yearError = !/^\d{4}$/.test(yearInput) || Number(yearInput) < MIN_RULE_YEAR || Number(yearInput) > MAX_RULE_YEAR ? `Enter a year from ${MIN_RULE_YEAR} to ${MAX_RULE_YEAR}` : years.includes(Number(yearInput)) ? `${yearInput} is already in the list` : undefined;
+  const [showError, setShowError] = useState(false);
+  const addYear = (e: FormEvent) => {
+    e.preventDefault();
+    if (yearError) return setShowError(true);
+    const y = Number(yearInput);
+    setAdded([...added, y]);
     setYear(y);
-    setYearInput(String(y));
+    setAdding(false);
+    setYearInput("");
+    setShowError(false);
   };
   return (
     <>
-      <PageHeader title="Tax configuration" lead="Rates and rules used by the calculation engine, set per financial year. Rules apply from their year until a later year has its own. Publishing creates a new version; submitted returns keep the version they were calculated with." />
+      <PageHeader title="Tax configuration" lead="Rates and rules used by the calculation engine, set per financial year. Rules apply from their year until a later year has its own. Publishing creates a new version; submitted returns keep the version they used." />
       <div className="grid gap-4 border border-line bg-surface p-5">
-        <form
-          className="flex flex-wrap items-end gap-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (!yearError) pick(Number(yearInput));
-          }}
-        >
-          <TextField label="Financial year" inputMode="numeric" className="w-44" value={yearInput} error={yearInput !== String(year) ? yearError : undefined} onChange={(e) => setYearInput(e.target.value.replace(/\D/g, "").slice(0, 4))} hint="Any year, for example 2027" />
-          <Button type="submit" variant="secondary" disabled={!!yearError || yearInput === String(year)}>Show rules</Button>
-        </form>
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-muted">Years with their own rules:</span>
-          {configured.map((y) => (
-            <button key={y} type="button" onClick={() => pick(y)} aria-pressed={y === year} className={cn("border px-3 py-1", y === year ? "border-primary bg-brand-50 font-medium text-brand-ink" : "border-line hover:bg-sunk")}>
-              {y}
-            </button>
-          ))}
-          <button type="button" onClick={() => pick(Math.max(...configured) + 1)} className="inline-flex items-center gap-1 border border-dashed border-line px-3 py-1 text-brand-ink hover:bg-sunk">
-            <Plus className="size-3.5" /> {Math.max(...configured) + 1}
-          </button>
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Financial year">
+          <span className="mr-1 text-sm text-muted">Financial year</span>
+          {years.map((y) => {
+            const draft = !configured.includes(y);
+            return (
+              <button key={y} type="button" onClick={() => setYear(y)} aria-pressed={y === year} className={cn("inline-flex items-center gap-2 border px-3 py-1.5 text-sm", y === year ? "border-primary bg-brand-50 font-medium text-brand-ink" : "border-line hover:bg-sunk", draft && "border-dashed")}>
+                <span className="num">{y}</span>
+                {draft ? <span className="text-xs font-normal text-muted">not published</span> : null}
+              </button>
+            );
+          })}
+          {!adding ? (
+            <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
+              <Plus /> Add financial year
+            </Button>
+          ) : null}
         </div>
+        {adding ? (
+          <form className="flex flex-wrap items-end gap-3 border-t border-line-soft pt-4" onSubmit={addYear} noValidate>
+            <TextField
+              label="New financial year"
+              inputMode="numeric"
+              autoFocus
+              className="w-48"
+              placeholder={String(Math.max(...years) + 1)}
+              value={yearInput}
+              error={showError ? yearError : undefined}
+              hint={`Any year from ${MIN_RULE_YEAR} to ${MAX_RULE_YEAR}`}
+              onChange={(e) => { setYearInput(e.target.value.replace(/\D/g, "").slice(0, 4)); setShowError(false); }}
+            />
+            <Button type="submit">Add year</Button>
+            <Button variant="ghost" onClick={() => { setAdding(false); setYearInput(""); setShowError(false); }}>Cancel</Button>
+          </form>
+        ) : null}
       </div>
       {inherited ? (
-        <Alert tone="review" title={`${year} has no rules of its own yet`}>
-          Returns for {year} use the {active.effectiveFromYear} rules (version {active.version}). Change anything below and publish to set rules for {year}; earlier years keep theirs.
+        <Alert tone="review" title={`Set the rules for ${year}`}>
+          The form starts from the {active.effectiveFromYear} rules (version {active.version}), which returns for {year} use until you publish. Change anything below and publish to save rules for {year}; other years keep theirs.
         </Alert>
       ) : null}
       <RuleSetEditor key={`${active.id}-${year}`} db={db} base={active} year={year} sections={["rates"]} />
@@ -254,6 +367,33 @@ export function TaxConfigPage() {
 
 const MIN_RULE_YEAR = 2025;
 const MAX_RULE_YEAR = 2100;
+
+/**
+ * Downloads the rule impact workbook: these rules applied to a demo taxpayer and company with live
+ * Excel formulas, so the administrator can change numbers and see the effect before publishing.
+ */
+function RuleWorkbookButton({ rules, focus, draft }: { rules: TaxRuleSet; focus: WorkbookFocus; draft: boolean }) {
+  const db = useDb();
+  const toast = useToast();
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      onClick={() => {
+        const { bytes, fileName } = buildRuleWorkbook(db, rules, focus, { draft });
+        const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        URL.revokeObjectURL(url);
+        toast("ok", `${fileName} downloaded. Change the yellow cells to see the impact.`);
+      }}
+    >
+      <FileSpreadsheet /> Download impact workbook (Excel)
+    </Button>
+  );
+}
 
 /** Edits a copy of `base`. With `year` set to a later year than the base, publishing creates that year's first rule set. */
 function RuleSetEditor({ db, base, sections, year = base.effectiveFromYear }: { db: Db; base: TaxRuleSet; sections: ("rates" | "reliefs" | "classification")[]; year?: number }) {
@@ -273,7 +413,10 @@ function RuleSetEditor({ db, base, sections, year = base.effectiveFromYear }: { 
         if (run((d, a) => publishRuleSet(d, a, base.id, { ...changes, ...forYear }, reason), newYear ? `Rules for ${year} published` : "New rule set version published")) setReason("");
       }}
     >
-      <p className="text-sm text-muted">{newYear ? <>Starting from version <strong>{base.version}</strong> ({base.effectiveFromYear}). Publishing sets the rules for <strong>{year}</strong>.</> : <>Editing from version <strong>{base.version}</strong>.</>}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted">{newYear ? <>Starting from version <strong>{base.version}</strong> ({base.effectiveFromYear}). Publishing sets the rules for <strong>{year}</strong>.</> : <>Editing from version <strong>{base.version}</strong>.</>}</p>
+        <RuleWorkbookButton rules={{ ...draft, effectiveFromYear: year }} focus={sections[0]!} draft={changed} />
+      </div>
       {sections.includes("rates") ? (
         <>
           <Section title="Individual income tax">
@@ -420,7 +563,7 @@ export function IncentivesPage() {
   const [revoke, setRevoke] = useState<Record<string, string>>({});
   return (
     <>
-      <PageHeader title="Company incentives" lead="Record a company-specific rate GMCA has already approved outside the platform. The engine applies it to corporate tax in its effective period. Companies can't apply here." />
+      <PageHeader title="Company incentives" lead="Record a company-specific rate GMCA has already approved outside the platform. The engine applies it to corporate tax in its effective period. Companies can't apply here." actions={<RuleWorkbookButton rules={ruleSetForYear(db.ruleSets, db.config.currentFilingYear)} focus="incentives" draft={false} />} />
       <DataTable
         caption="Incentives"
         rows={db.incentives}
@@ -482,7 +625,7 @@ export function CurrencyPage() {
   const rates = [...db.config.exchangeRates].sort((a, b) => a.currency.localeCompare(b.currency) || b.effectiveDate.localeCompare(a.effectiveDate));
   return (
     <>
-      <PageHeader title="Currency & exchange rates" lead={`Every amount keeps its original currency and is converted to the reporting currency (${db.config.reportingCurrency}) with the latest rate on or before the conversion date.`} />
+      <PageHeader title="Currency & exchange rates" lead={`Every amount keeps its original currency and is converted to the reporting currency (${db.config.reportingCurrency}) with the latest rate on or before the conversion date.`} actions={<RuleWorkbookButton rules={ruleSetForYear(db.ruleSets, db.config.currentFilingYear)} focus="currency" draft={false} />} />
       <Section title="Currencies">
         <DataTable
           caption="Currencies"

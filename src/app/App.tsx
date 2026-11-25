@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import type { Role } from "../domain/types";
-import { AdminOverview, AuditPage, ClassificationPage, CurrencyPage, IncentivesPage, IntegrationsPage, ReliefConfigPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
+import { AdminOverview, AssignmentsPage, AuditPage, ClassificationPage, CurrencyPage, IncentivesPage, IntegrationsPage, ReliefConfigPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
 import { LoginPage, NotFound, RegisterChooser, RegisterCitizen, RegisterCompany, RegisterForeign } from "../features/auth/AuthPages";
 import { CorporateListPage, CorporateReturnPage, CorporateWizardEntry, EmployerHistory } from "../features/employer/CorporatePages";
 import { CompanyProfile, DeclarationPage, EmployeeEditor, EmployeesPage, EmployerOverview, PayrollPage } from "../features/employer/EmployerPages";
@@ -16,7 +16,7 @@ type Route = { path: string; roles: Role[]; render: (p: Record<string, string>, 
 
 const TAXPAYER: Role[] = ["INDIVIDUAL", "EMPLOYER"];
 const STAFF: Role[] = ["ASSESSOR", "ADMIN"];
-const ALL: Role[] = ["INDIVIDUAL", "EMPLOYER", "ASSESSOR", "ADMIN"];
+const ALL: Role[] = ["INDIVIDUAL", "EMPLOYER", "ASSESSOR", "ADMIN", "SYSADMIN"];
 
 /** Role is checked here and again inside every service call. */
 const ROUTES: Route[] = [
@@ -69,7 +69,8 @@ const ROUTES: Route[] = [
 
   // GMCA administrator
   { path: "/admin", roles: ["ADMIN"], render: () => <AdminOverview /> },
-  { path: "/admin/users", roles: ["ADMIN"], render: () => <UsersPage /> },
+  { path: "/admin/users", roles: ["SYSADMIN"], render: () => <UsersPage /> },
+  { path: "/admin/assignments", roles: ["ADMIN"], render: () => <AssignmentsPage /> },
   { path: "/admin/tax", roles: ["ADMIN"], render: () => <TaxConfigPage /> },
   { path: "/admin/reliefs", roles: ["ADMIN"], render: () => <ReliefConfigPage /> },
   { path: "/admin/classification", roles: ["ADMIN"], render: () => <ClassificationPage /> },
@@ -77,7 +78,7 @@ const ROUTES: Route[] = [
   { path: "/admin/currency", roles: ["ADMIN"], render: () => <CurrencyPage /> },
   { path: "/admin/integrations", roles: ["ADMIN"], render: () => <IntegrationsPage /> },
   { path: "/admin/audit", roles: ["ADMIN"], render: () => <AuditPage /> },
-  { path: "/admin/notifications", roles: ["ADMIN"], render: () => <MessagesPage /> }
+  { path: "/admin/notifications", roles: ["ADMIN", "SYSADMIN"], render: () => <MessagesPage /> }
 ];
 
 const PUBLIC: Record<string, () => ReactNode> = {

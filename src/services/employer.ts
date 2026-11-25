@@ -9,6 +9,7 @@ import { convert, conversionDateFor } from "./currency";
 import { generateDocument } from "./documents";
 import { providers } from "./integrations";
 import { logIntegration } from "./registration";
+import { autoAssign } from "./assignments";
 
 const companyOwner = (companyId: string) => ({ kind: "COMPANY" as const, id: companyId });
 
@@ -317,8 +318,9 @@ export function submitCorporate(d: Db, actor: Actor, id: string) {
   const assessment = { id: nextId(d, "ASM"), returnKind: "CORPORATE" as const, returnId: r.id, owner, year: r.year, status: "NOT_ASSIGNED" as const, notes: [], adjustments: [], createdAt: now };
   d.assessments.push(assessment);
   r.assessmentId = assessment.id;
+  const officerId = autoAssign(d, assessment);
   audit(d, actor, "CORPORATE_SUBMITTED", "CorporateTaxReturn", r.id, `Corporate return ${r.reference} submitted`);
   notify(d, { owner }, "Corporate return submitted", `${r.reference} for ${r.year} was received.`, `/company/corporate/return/${r.id}`);
-  notify(d, { role: "ASSESSOR" }, "New corporate return", `${r.reference} is waiting to be assigned.`, `/gmca/cases/${assessment.id}`);
+  if (!officerId) notify(d, { role: "ASSESSOR" }, "New corporate return", `${r.reference} is waiting to be assigned.`, `/gmca/cases/${assessment.id}`);
   return r;
 }

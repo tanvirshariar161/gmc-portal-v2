@@ -8,6 +8,7 @@ import { formatDate, formatDateTime, formatPeriod, maskId } from "../../lib/form
 import { formatMoney, parseAmountInput } from "../../lib/money";
 import { cn } from "../../lib/utils";
 import { addAdjustment, addNote, assignToMe, caseLabel, closeRequest, completeAssessment, recordVerification, requestInformation, returnFor, startReview } from "../../services/assessment";
+import { organizationsOf } from "../../services/assignments";
 import { addDays, today } from "../../services/clock";
 import { CATEGORY_LABEL, setDocumentReview } from "../../services/documents";
 import { liabilityStatus, outstanding } from "../../services/payments";
@@ -65,6 +66,7 @@ export function GmcaOverview() {
   const mine = rows.filter((r) => r.a.assignedTo === actor.id && r.a.status !== "COMPLETED");
   const stats = useStats(db);
   const attention = mine.filter((r) => r.a.status === "RESPONSE_RECEIVED" || r.a.status === "ASSIGNED");
+  const orgs = organizationsOf(db, actor.id).map((id) => db.companies.find((c) => c.id === id)?.name ?? id);
   return (
     <>
       <PageHeader title="Overview" lead={`Returns, assessments and payments for financial year ${db.config.currentFilingYear} and earlier.`} actions={<Button onClick={() => navigate("/gmca/queue")}>Assessment of returns</Button>} />
@@ -84,6 +86,11 @@ export function GmcaOverview() {
           { label: "Late filings", value: "—", hint: "Not computed: deadlines are not configured" }
         ]}
       />
+      <Alert tone="review" title="Your organizations">
+        {orgs.length
+          ? `${orgs.join(", ")}. Returns from ${orgs.length === 1 ? "this organization" : "these organizations"} and their employees are assigned to you when they're submitted.`
+          : "No organization is assigned to you yet. The GMCA Tax Administrator assigns them; until then, pick up cases from the queue."}
+      </Alert>
       <Section title="Needs your attention" description="Cases assigned to you that are waiting on you.">
         {attention.length ? <CaseTable db={db} rows={attention} caption="Cases needing attention" /> : <p className="border border-line bg-surface px-5 py-4 text-sm text-muted">Nothing is waiting on you right now.</p>}
       </Section>

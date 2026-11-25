@@ -7,8 +7,11 @@ import { addAdjustment, assignToMe, completeAssessment, recordVerification, requ
 import { bracketFor, calculateCorporate, calculateIndividual, monthlyTds, progressiveTax, ruleSetForYear } from "./calc";
 import { convert } from "./currency";
 import { classForCompany, classForTaxpayer, resolveTaxpayerClass } from "./classification";
-import { publishRuleSet, setResidency, validateRuleSet } from "./admin";
-import { checkCredentials, needsNdiApproval, SAMPLE_PASSWORD, startNdiSignIn } from "./auth";
+import { createStaffUser, publishRuleSet, setResidency, setStaffRole, setUserStatus, validateRuleSet } from "./admin";
+import { officerForOwner, setOrganizationOfficer } from "./assignments";
+import { buildRuleWorkbook } from "./ruleWorkbook";
+import { checkNewContact } from "./registration";
+import { checkCredentials, issueOtp, maskDestination, otpDestination, SAMPLE_PASSWORD, signInFactor, startNdiSignIn, verifyOtp } from "./auth";
 import { corporateIssues, declarationByCurrency, ensureCorporateDraft, ensureDeclaration, saveCorporateDraft, saveDeclarationLines, submitDeclaration } from "./employer";
 import { ensureDraftReturn, payAndSubmit, returnScope, saveDraft, submitReturn, syncDkBankStatement, validateReturn } from "./individual";
 import { initiatePayment, liabilityStatus, recheckPayment, settlePayment } from "./payments";
@@ -185,7 +188,8 @@ describe("individual return submission", () => {
     submitReturn(d, karma, ret.id);
     expect(ret.submissionStatus).toBe("SUBMITTED");
     expect(ret.reference).toMatch(/^IIT-2026-/);
-    expect(d.assessments.find((a) => a.id === ret.assessmentId)?.status).toBe("NOT_ASSIGNED");
+    // Karma works for Gelephu Green Energy, whose assigned officer is Ugyen: the case goes straight to him.
+    expect(d.assessments.find((a) => a.id === ret.assessmentId)).toMatchObject({ status: "ASSIGNED", assignedTo: "usr-ugyen" });
     expect(() => saveDraft(d, karma, ret.id, { declarationAccepted: false })).toThrow(/submitted/);
   });
 
@@ -328,16 +332,95 @@ describe("return scope", () => {
 });
 
 describe("sign-in", () => {
-  it("checks the password, then asks individual taxpayers to approve in Bhutan NDI", () => {
+  it("checks the password, then asks citizens to approve in Bhutan NDI", () => {
     expect(() => checkCredentials(d, "karma.dorji@demo.gmca.test", "wrong")).toThrow(/email or password/);
     const karma = checkCredentials(d, " Karma.Dorji@demo.gmca.test ", SAMPLE_PASSWORD);
-    expect(needsNdiApproval(karma)).toBe(true);
+    expect(signInFactor(d, karma)).toBe("NDI");
     expect(startNdiSignIn(d, karma).status).toBe("WAITING");
-    expect(needsNdiApproval(checkCredentials(d, "ugyen.tshering@gmca.demo.test", SAMPLE_PASSWORD))).toBe(false);
+    expect(signInFactor(d, checkCredentials(d, "ugyen.tshering@gmca.demo.test", SAMPLE_PASSWORD))).toBeNull();
     d.config.integrations.ndi = "FORCE_UNAVAILABLE";
     expect(startNdiSignIn(d, karma).status).toBe("UNAVAILABLE");
     d.config.integrations.ndi = "FORCE_NO_MATCH";
     expect(startNdiSignIn(d, karma).status).toBe("NO_MATCH");
+  });
+});
+
+describe("one-time codes for foreign nationals and representatives", () => {
+  it("sends them a code instead of an NDI request, to the phone on their record", () => {
+    const anika = d.users.find((u) => u.id === "usr-anika")!;
+    const pema = d.users.find((u) => u.id === "usr-pema")!;
+    expect(signInFactor(d, anika)).toBe("OTP");
+    expect(signInFactor(d, pema)).toBe("OTP");
+    expect(otpDestination(d, pema)).toBe("+975 17 111 222");
+    expect(maskDestination("+975 17 111 222")).toBe("•••• 222");
+    expect(maskDestination("maya@mvh.demo.test")).toBe("m•••@mvh.demo.test");
+  });
+
+  it("accepts the right code once, allows three tries and expires after five minutes", () => {
+    const now = 1_000_000;
+    const c = issueOtp("+975 17 111 222", now);
+    expect(c.code).toMatch(/^\d{6}$/);
+    expect(verifyOtp(c, c.code, now + 1000)).toEqual({ ok: true });
+    expect(verifyOtp(c, c.code, now + 5 * 60_000 + 1)).toMatchObject({ ok: false, reason: "EXPIRED" });
+    const wrong = c.code === "000000" ? "111111" : "000000";
+    let r = verifyOtp(c, wrong, now);
+    expect(r).toMatchObject({ ok: false, reason: "WRONG", challenge: { attemptsLeft: 2 } });
+    r = verifyOtp((r as { challenge: typeof c }).challenge, wrong, now);
+    r = verifyOtp((r as { challenge: typeof c }).challenge, wrong, now);
+    expect(r).toMatchObject({ ok: false, reason: "LOCKED" });
+    expect(verifyOtp((r as { challenge: typeof c }).challenge, c.code, now)).toMatchObject({ ok: false, reason: "LOCKED" });
+  });
+
+  it("checks sign-up contact details before a code is sent", () => {
+    expect(() => checkNewContact(d, { email: "pema@gge.demo.test", phone: "+975 17 000 001" })).toThrow(/already used/);
+    expect(() => checkNewContact(d, { email: "new.person@example.com", phone: "+975 17 000 001" })).not.toThrow();
+  });
+});
+
+describe("GMCA roles", () => {
+  it("splits users and roles (System Admin) from tax rules (Tax Administrator)", () => {
+    const deki = actor("usr-admin");
+    const tandin = actor("usr-sysadmin");
+    expect(() => createStaffUser(d, deki, { name: "New Officer", email: "new.officer@gmca.demo.test", role: "ASSESSOR", title: "" })).toThrow(/role cannot/);
+    const u = createStaffUser(d, tandin, { name: "New Officer", email: "new.officer@gmca.demo.test", role: "ASSESSOR", title: "" });
+    setStaffRole(d, tandin, u.id, "SYSADMIN");
+    expect(u.role).toBe("SYSADMIN");
+    expect(() => publishRuleSet(d, tandin, ruleSetForYear(d.ruleSets, 2026).id, { healthRatePct: 2 }, "x")).toThrow(/role cannot/);
+    expect(() => setStaffRole(d, tandin, "usr-admin", "ASSESSOR")).toThrow(/tax administrator/);
+    setUserStatus(d, tandin, u.id, "DEACTIVATED");
+    expect(() => setUserStatus(d, actor(u.id), "usr-sysadmin", "DEACTIVATED")).toThrow();
+  });
+});
+
+describe("officer assignments by organization", () => {
+  it("sends returns from an organization and its employees to the assigned officer", () => {
+    expect(officerForOwner(d, { kind: "COMPANY", id: "co-gge" })).toBe("usr-ugyen");
+    expect(officerForOwner(d, { kind: "INDIVIDUAL", id: "tp-anika" })).toBe("usr-ugyen");
+    expect(officerForOwner(d, { kind: "INDIVIDUAL", id: "tp-tashi" })).toBeUndefined();
+    expect(() => setOrganizationOfficer(d, actor("usr-ugyen"), "co-gge", "usr-kinley")).toThrow(/role cannot/);
+    expect(() => setOrganizationOfficer(d, actor("usr-admin"), "co-gge", "usr-pema")).toThrow(/tax officer/);
+    // One officer can cover several organizations.
+    setOrganizationOfficer(d, actor("usr-admin"), "co-gge", "usr-kinley");
+    expect(d.officerAssignments.filter((a) => a.officerId === "usr-kinley").map((a) => a.companyId).sort()).toEqual(["co-gge", "co-mvh"]);
+    const anika = actor("usr-anika");
+    const ret = ensureDraftReturn(d, anika, 2026);
+    saveDraft(d, anika, ret.id, { declarationAccepted: true });
+    settlePayment(d, anika, payAndSubmit(d, anika, ret.id).id, "SUCCESS");
+    expect(d.assessments.find((a) => a.id === ret.assessmentId)).toMatchObject({ status: "ASSIGNED", assignedTo: "usr-kinley" });
+  });
+});
+
+describe("rule impact workbook", () => {
+  it("builds an .xlsx with the demo taxpayer, the rules and live formulas", () => {
+    const rules = ruleSetForYear(d.ruleSets, 2026);
+    const wb = buildRuleWorkbook(d, rules, "reliefs", { draft: true });
+    expect(wb.fileName).toBe("GMCA-rule-impact-FY2026-draft.xlsx");
+    expect(String.fromCharCode(wb.bytes[0]!, wb.bytes[1]!)).toBe("PK");
+    expect(wb.sheets.map((s) => s.name)).toEqual(["Read me", "Individual tax", "Monthly TDS", "Reliefs", "Classification", "Corporate tax", "Currencies"]);
+    const ind = wb.sheets[1]!;
+    expect(ind.rows[5]).toEqual(["Monthly salary (Nu)", { v: 500_000, style: "input" }]);
+    expect(JSON.stringify(ind.rows)).toContain("'Monthly TDS'!$B$");
+    expect(new TextDecoder().decode(wb.bytes)).toContain('activeTab="3"');
   });
 });
 
@@ -350,6 +433,9 @@ describe("rules per financial year", () => {
     expect(ruleSetForYear(d.ruleSets, 2027).id).toBe(next.id);
     expect(ruleSetForYear(d.ruleSets, 2026).id).toBe(base.id);
     expect(() => publishRuleSet(d, actor("usr-admin"), base.id, { effectiveFromYear: 1999 }, "x")).toThrow(/2025 to 2100/);
+    // Any future year can be set directly, not only the next one.
+    expect(publishRuleSet(d, actor("usr-admin"), base.id, { effectiveFromYear: 2035 }, "Long-range plan")).toMatchObject({ version: "FY2035.1" });
+    expect(ruleSetForYear(d.ruleSets, 2034).effectiveFromYear).toBe(2027);
   });
 });
 

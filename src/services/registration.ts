@@ -1,6 +1,6 @@
 import { maskId } from "../lib/format";
 import { audit, nextId, nextReference, notify, ServiceError } from "../domain/store";
-import type { Company, Db, IndividualTaxpayer, IntegrationEvent, User } from "../domain/types";
+import type { Company, Db, IndividualTaxpayer, IntegrationEvent, Role, User } from "../domain/types";
 import { nowIso } from "./clock";
 import { providers, type ImmigrationRecord, type LookupResult, type NdiRecord, type RegistryRecord } from "./integrations";
 
@@ -18,6 +18,21 @@ function validateContact(c: { email: string; phone: string }) {
 }
 
 // ---------- Lookups (record an integration event, create nothing else) ----------
+
+/**
+ * Checks contact details before a one-time code is sent at sign-up, so a typo or an email that
+ * already has an account shows up before the phone is verified, not after.
+ */
+export function checkNewContact(d: Db, contact: { email: string; phone: string }) {
+  validateContact(contact);
+  if (emailTaken(d, contact.email)) throw new ServiceError("This email address is already used by another account.", "CONFLICT");
+}
+
+export function checkRepresentative(d: Db, rep: { name: string; designation: string; email: string; phone: string }) {
+  if (!rep.name.trim()) throw new ServiceError("Enter the representative's full name.");
+  if (!rep.designation.trim()) throw new ServiceError("Enter the representative's designation.");
+  checkNewContact(d, rep);
+}
 
 export function lookupCitizen(d: Db, cid: string, dateOfBirth: string): LookupResult<NdiRecord> {
   if (!/^\d{11}$/.test(cid.trim())) throw new ServiceError("A Citizenship ID has 11 digits.");
@@ -139,7 +154,7 @@ export function registerCompany(d: Db, record: RegistryRecord, reference: string
 // ---------- Self-service profile ----------
 
 /** Contact details are the taxpayer's own; verified identity fields are not editable here. */
-export function updateContact(d: Db, actor: { id: string; name: string; role: "INDIVIDUAL" | "EMPLOYER" | "ASSESSOR" | "ADMIN"; taxpayerId?: string }, contact: Contact) {
+export function updateContact(d: Db, actor: { id: string; name: string; role: Role; taxpayerId?: string }, contact: Contact) {
   const t = d.taxpayers.find((x) => x.id === actor.taxpayerId);
   if (!t || actor.role !== "INDIVIDUAL") throw new ServiceError("Only the taxpayer can change these details.", "FORBIDDEN");
   validateContact(contact);
@@ -153,7 +168,7 @@ export function updateContact(d: Db, actor: { id: string; name: string; role: "I
 }
 
 /** Verified registry data can't be overwritten by the taxpayer; a correction goes to GMCA instead. */
-export function requestCorrection(d: Db, actor: { id: string; name: string; role: "INDIVIDUAL" | "EMPLOYER" | "ASSESSOR" | "ADMIN" }, text: string) {
+export function requestCorrection(d: Db, actor: { id: string; name: string; role: Role }, text: string) {
   if (!text.trim()) throw new ServiceError("Describe what is wrong and what it should be.");
   audit(d, actor, "CORRECTION_REQUESTED", "User", actor.id, `Correction requested: ${text.trim().slice(0, 200)}`);
   notify(d, { role: "ADMIN" }, "Profile correction requested", `${actor.name}: ${text.trim().slice(0, 200)}`, "/admin/audit");

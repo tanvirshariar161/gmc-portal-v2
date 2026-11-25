@@ -10,6 +10,7 @@ import { generateDocument, uploadDocument } from "./documents";
 import { providers } from "./integrations";
 import { initiatePayment } from "./payments";
 import { logIntegration } from "./registration";
+import { autoAssign } from "./assignments";
 
 const owner = (r: IndividualTaxReturn) => ({ kind: "INDIVIDUAL" as const, id: r.taxpayerId });
 
@@ -190,9 +191,10 @@ export function submitReturn(d: Db, actor: Actor, returnId: string) {
   const assessment = { id: nextId(d, "ASM"), returnKind: "INDIVIDUAL" as const, returnId: ret.id, owner: owner(ret), year: ret.year, status: "NOT_ASSIGNED" as const, notes: [], adjustments: [], createdAt: now };
   d.assessments.push(assessment);
   ret.assessmentId = assessment.id;
+  const officerId = autoAssign(d, assessment);
   audit(d, actor, "RETURN_SUBMITTED", "IndividualTaxReturn", ret.id, `Individual return ${ret.reference} submitted`);
   notify(d, { owner: owner(ret) }, "Return submitted", `Your ${ret.year} Individual Income Tax Return ${ret.reference} was received. Your Acknowledgement Certificate is ready.`, `/returns/${ret.id}`);
-  notify(d, { role: "ASSESSOR" }, "New individual return", `${ret.reference} is waiting to be assigned.`, `/gmca/cases/${assessment.id}`);
+  if (!officerId) notify(d, { role: "ASSESSOR" }, "New individual return", `${ret.reference} is waiting to be assigned.`, `/gmca/cases/${assessment.id}`);
   return ret;
 }
 

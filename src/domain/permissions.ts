@@ -15,6 +15,7 @@ export const PERMISSIONS = {
   "assessment.act": "Review and assess assigned returns",
   "taxpayers.manage": "Manage taxpayer and company records, including tax residency",
   "admin.users": "Manage user accounts and roles",
+  "admin.assignments": "Assign tax officers to organizations",
   "admin.config": "Configure tax rules, reliefs, currencies",
   "admin.incentives": "Record approved company incentives",
   "admin.integrations": "Change integration behaviour and reset data",
@@ -28,14 +29,16 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   INDIVIDUAL: ["individual.file", "payments.pay"],
   EMPLOYER: ["employer.manage", "payments.pay"],
   ASSESSOR: ["assessment.view", "assessment.act", "taxpayers.manage", "reports.view"],
-  ADMIN: ["admin.users", "admin.config", "admin.incentives", "admin.integrations", "audit.view", "reports.view"]
+  ADMIN: ["admin.config", "admin.assignments", "admin.incentives", "admin.integrations", "audit.view", "reports.view"],
+  SYSADMIN: ["admin.users"]
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
   INDIVIDUAL: "Individual taxpayer",
   EMPLOYER: "Representatives",
   ASSESSOR: "GMCA Tax Officer",
-  ADMIN: "GMCA Administrator"
+  ADMIN: "GMCA Tax Administrator",
+  SYSADMIN: "GMCA System Admin"
 };
 
 export function hasPermission(actor: Actor, p: Permission) {

@@ -86,7 +86,7 @@ const SESSION_KEY = "gmca-v2:session";
 type SessionValue = { user: User | null; actor: Actor | null; signIn: (userId: string) => void; signOut: () => void };
 const SessionContext = createContext<SessionValue | null>(null);
 
-export const HOME: Record<Role, string> = { INDIVIDUAL: "/", EMPLOYER: "/company", ASSESSOR: "/gmca", ADMIN: "/admin" };
+export const HOME: Record<Role, string> = { INDIVIDUAL: "/", EMPLOYER: "/company", ASSESSOR: "/gmca", ADMIN: "/admin", SYSADMIN: "/admin/users" };
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const db = useDb();

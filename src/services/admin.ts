@@ -1,12 +1,12 @@
 import { audit, nextId, notify, ServiceError, type Actor } from "../domain/store";
 import { require } from "../domain/permissions";
-import type { BankMode, Db, ExchangeRate, IntegrationMode, PlatformConfig, ResidencyStatus, Role, TaxRuleSet, User } from "../domain/types";
+import type { BankMode, Db, ExchangeRate, IntegrationMode, PlatformConfig, ResidencyStatus, StaffRole, TaxRuleSet, User } from "../domain/types";
 import { nowIso } from "./clock";
 import { classMatches, PROFILES, profileLabel, TREATMENTS } from "./classification";
 
 // ---------- Users and roles ----------
 
-export function createStaffUser(d: Db, actor: Actor, input: { name: string; email: string; role: Extract<Role, "ASSESSOR" | "ADMIN">; title: string }) {
+export function createStaffUser(d: Db, actor: Actor, input: { name: string; email: string; role: StaffRole; title: string }) {
   require(actor, "admin.users");
   if (!input.name.trim()) throw new ServiceError("Enter the officer's full name.");
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(input.email.trim())) throw new ServiceError("Enter a valid email address.");
@@ -22,17 +22,25 @@ export function setUserStatus(d: Db, actor: Actor, userId: string, status: User[
   const u = d.users.find((x) => x.id === userId);
   if (!u) throw new ServiceError("User not found.", "NOT_FOUND");
   if (u.id === actor.id) throw new ServiceError("You can't deactivate your own account.");
-  if (status === "DEACTIVATED" && u.role === "ADMIN" && d.users.filter((x) => x.role === "ADMIN" && x.status === "ACTIVE").length <= 1) throw new ServiceError("At least one active administrator is required.");
+  if (status === "DEACTIVATED" && isLastActive(d, u)) throw new ServiceError(`At least one active ${u.role === "SYSADMIN" ? "system admin" : "tax administrator"} is required.`);
   u.status = status;
   audit(d, actor, status === "ACTIVE" ? "USER_REACTIVATED" : "USER_DEACTIVATED", "User", u.id, `${u.name} ${status === "ACTIVE" ? "reactivated" : "deactivated"}`);
 }
 
-export function setStaffRole(d: Db, actor: Actor, userId: string, role: Extract<Role, "ASSESSOR" | "ADMIN">) {
+/** The platform always keeps an active system admin (users and roles) and an active tax administrator (rules). */
+function isLastActive(d: Db, u: User) {
+  return (u.role === "ADMIN" || u.role === "SYSADMIN") && u.status === "ACTIVE" && d.users.filter((x) => x.role === u.role && x.status === "ACTIVE").length <= 1;
+}
+
+export const STAFF_ROLES: StaffRole[] = ["ASSESSOR", "ADMIN", "SYSADMIN"];
+
+export function setStaffRole(d: Db, actor: Actor, userId: string, role: StaffRole) {
   require(actor, "admin.users");
   const u = d.users.find((x) => x.id === userId);
   if (!u) throw new ServiceError("User not found.", "NOT_FOUND");
-  if (u.role !== "ASSESSOR" && u.role !== "ADMIN") throw new ServiceError("Taxpayer and employer roles come from registration and can't be changed here.");
+  if (!STAFF_ROLES.includes(u.role as StaffRole) || !STAFF_ROLES.includes(role)) throw new ServiceError("Taxpayer and employer roles come from registration and can't be changed here.");
   if (u.id === actor.id) throw new ServiceError("You can't change your own role.");
+  if (u.role !== role && isLastActive(d, u)) throw new ServiceError(`At least one active ${u.role === "SYSADMIN" ? "system admin" : "tax administrator"} is required.`);
   const from = u.role;
   u.role = role;
   audit(d, actor, "ROLE_CHANGED", "User", u.id, `${u.name}: ${from.toLowerCase()} → ${role.toLowerCase()}`);
@@ -112,7 +120,9 @@ function validateClasses(r: TaxRuleSet) {
     keys.add(c.key);
     if (c.rateBasis === "FLAT" && !isRate(c.flatRatePct)) throw new ServiceError(`${name}: enter a flat rate between 0 and 100%.`);
     if (c.rateBasis !== "FLAT" && c.flatRatePct !== null) throw new ServiceError(`${name}: a flat rate is set but the class uses the Income Tax Act bands.`);
-    if (c.lastIncomeYear !== null && !(Number.isInteger(c.lastIncomeYear) && c.lastIncomeYear >= r.effectiveFromYear)) throw new ServiceError(`${name}: the last income year must be ${r.effectiveFromYear} or later, or left blank.`);
+    // A class whose last year is before the rule year is allowed: it simply never applies. Blocking it would stop
+    // administrators setting rules for later years without first editing every sunset class.
+    if (c.lastIncomeYear !== null && !(Number.isInteger(c.lastIncomeYear) && c.lastIncomeYear >= 2025 && c.lastIncomeYear <= 2100)) throw new ServiceError(`${name}: enter a last income year from 2025 to 2100, or leave it blank.`);
   }
   // Every taxpayer must still resolve once every sunset has passed.
   for (const p of PROFILES) {

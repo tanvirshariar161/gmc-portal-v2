@@ -4,7 +4,9 @@ export type ID = string;
 
 // ---------- Users and roles ----------
 
-export type Role = "INDIVIDUAL" | "EMPLOYER" | "ASSESSOR" | "ADMIN";
+/** ADMIN is the GMCA Tax Administrator (tax rules, officer assignments); SYSADMIN the GMCA System Admin (users and roles only). */
+export type Role = "INDIVIDUAL" | "EMPLOYER" | "ASSESSOR" | "ADMIN" | "SYSADMIN";
+export type StaffRole = Extract<Role, "ASSESSOR" | "ADMIN" | "SYSADMIN">;
 
 export type User = {
   id: ID;
@@ -346,6 +348,12 @@ export type Assessment = {
   createdAt: string;
 };
 
+/**
+ * The tax officer GMCA assigns to an organization. New returns from the organization, and from
+ * individuals it employs, go straight to that officer. One officer can cover many organizations.
+ */
+export type OfficerAssignment = { companyId: ID; officerId: ID; assignedBy: ID; assignedAt: string };
+
 export type InformationRequest = {
   id: ID;
   reference: string;
@@ -566,6 +574,7 @@ export type Db = {
   monthlyDeclarations: EmployerMonthlyDeclaration[];
   corporateReturns: CorporateTaxReturn[];
   assessments: Assessment[];
+  officerAssignments: OfficerAssignment[];
   infoRequests: InformationRequest[];
   liabilities: Liability[];
   payments: Payment[];
