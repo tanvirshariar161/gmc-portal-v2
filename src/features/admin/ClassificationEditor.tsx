@@ -96,11 +96,15 @@ function ClassSection({ regime, draft, base, onClasses }: { regime: TaxRegime; d
       { key: uniqueKey(regime === "INDIVIDUAL" ? "IND_CLASS" : "CORP_CLASS", all.map((c) => c.key)), label: "", description: "", regime, citizenship: "ANY", residency: "ANY", entityType: "ANY", rateBasis: "FLAT", flatRatePct: 0, incomeScope: "WORLDWIDE", lastIncomeYear: null, enabled: true }
     ]);
   const { title, description } = REGIME_TEXT[regime];
+  const isNewClass = (c: TaxpayerClass) => !base.taxpayerClasses.some((b) => b.key === c.key);
+  // Unpublished classes show first so the admin sees the card they just added without scrolling.
+  // Their place in the checking order is unchanged (new ones are checked last); the number shows it.
+  const shown = mine.map((x, pos) => ({ ...x, pos })).sort((a, b) => Number(isNewClass(b.c)) - Number(isNewClass(a.c)));
   return (
     <Section title={title} description={description} actions={<Button size="sm" variant="secondary" onClick={add}><Plus /> Add class</Button>}>
       <ol className="grid gap-3">
-        {mine.map(({ c, i }, pos) => {
-          const isNew = !base.taxpayerClasses.some((b) => b.key === c.key);
+        {shown.map(({ c, i, pos }) => {
+          const isNew = isNewClass(c);
           return (
             <li key={c.key}>
               <fieldset className={cn("grid gap-4 border bg-surface p-5", c.enabled ? "border-line" : "border-dashed border-line opacity-80")}>
@@ -201,9 +205,10 @@ function ItemCatalogue({ draft, base, onItems }: { draft: TaxRuleSet; base: TaxR
   const update = (i: number, patch: Partial<TaxItem>) => onItems(all.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   const add = () => {
     const treatment = treatmentsFor(kind)[0]!.value;
+    // New items go first so the card opens at the top of the list.
     onItems([
-      ...all,
-      { key: uniqueKey(KEY_PREFIX[kind], all.map((x) => x.key)), label: "", description: "", kind, appliesTo: kind === "INCOME" ? "INDIVIDUAL" : "CORPORATE", treatment, ratePct: null, allowanceMethod: treatment === "CAPITAL_ALLOWANCE" ? "STRAIGHT_LINE" : null, origin: kind === "INCOME" ? "EITHER" : null, evidenceExamples: [], enabled: true }
+      { key: uniqueKey(KEY_PREFIX[kind], all.map((x) => x.key)), label: "", description: "", kind, appliesTo: kind === "INCOME" ? "INDIVIDUAL" : "CORPORATE", treatment, ratePct: null, allowanceMethod: treatment === "CAPITAL_ALLOWANCE" ? "STRAIGHT_LINE" : null, origin: kind === "INCOME" ? "EITHER" : null, evidenceExamples: [], enabled: true },
+      ...all
     ]);
   };
   const shown = all.map((item, i) => ({ item, i })).filter((x) => x.item.kind === kind);

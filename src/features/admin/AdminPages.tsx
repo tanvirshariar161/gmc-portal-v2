@@ -324,11 +324,18 @@ function RuleSetEditor({ db, base, sections, year = base.effectiveFromYear }: { 
   );
 }
 
+/** New reliefs are added at the top, so the next free number (not the list length) keeps keys unique. */
+function uniqueReliefKey(reliefs: ReliefRule[]) {
+  let n = reliefs.length + 1;
+  while (reliefs.some((r) => r.key === `RELIEF_${n}`)) n += 1;
+  return `RELIEF_${n}`;
+}
+
 function ReliefEditor({ reliefs, onReliefs, currency }: { reliefs: ReliefRule[]; onReliefs: (r: ReliefRule[]) => void; currency: string }) {
   const upd = (i: number, patch: Partial<ReliefRule>) => onReliefs(reliefs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   return (
     <>
-      <Section title="Reliefs and deductions" actions={<Button size="sm" variant="secondary" onClick={() => onReliefs([...reliefs, { key: `RELIEF_${reliefs.length + 1}`, label: "", description: "", capMinor: null, evidenceExamples: [], enabled: true }])}><Plus /> Add relief</Button>}>
+      <Section title="Reliefs and deductions" actions={<Button size="sm" variant="secondary" onClick={() => onReliefs([{ key: uniqueReliefKey(reliefs), label: "", description: "", capMinor: null, evidenceExamples: [], enabled: true }, ...reliefs])}><Plus /> Add relief</Button>}>
         <div className="grid gap-4">
           {reliefs.map((r, i) => (
             <fieldset key={r.key} className={cn("grid gap-4 border bg-surface p-5 sm:grid-cols-2", r.enabled ? "border-line" : "border-dashed border-line opacity-80")}>
