@@ -1,5 +1,5 @@
-import { AlertTriangle, CheckCircle2, ChevronRight, Info, XCircle } from "lucide-react";
-import { createContext, useContext } from "react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Info, X, XCircle } from "lucide-react";
+import { createContext, isValidElement, useContext, useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { cn } from "../../lib/utils";
 import { formatMoney, type Cents } from "../../lib/money";
@@ -19,8 +19,11 @@ export function PageIntro({ eyebrow, title, lead, actions, size = "lg" }: { eyeb
     <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
       <div className="grid max-w-3xl gap-4">
         {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-        <h1 className={cn("display", size === "lg" ? "text-[2.25rem] sm:text-[3.25rem]" : "text-[2rem] sm:text-[2.5rem]")}>{title}</h1>
-        {lead ? <p className="max-w-2xl text-[15px] leading-relaxed text-muted">{lead}</p> : null}
+        <div className="flex items-center gap-2">
+          {lead && textOf(lead).length > LONG_GUIDANCE ? <InfoTip label={typeof title === "string" ? title : "this step"}>{lead}</InfoTip> : null}
+          <h1 className={cn("display", size === "lg" ? "text-[2.25rem] sm:text-[3.25rem]" : "text-[2rem] sm:text-[2.5rem]")}>{title}</h1>
+        </div>
+        {lead && textOf(lead).length <= LONG_GUIDANCE ? <p className="max-w-2xl text-[15px] leading-relaxed text-muted">{lead}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
     </header>
@@ -236,5 +239,99 @@ export function Breadcrumb({ items, onNavigate }: { items: { label: string; href
         ))}
       </ol>
     </nav>
+  );
+}
+
+/** Plain text of a node, to judge how long a piece of guidance is. */
+export function textOf(node: ReactNode): string {
+  if (node === null || node === undefined || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (isValidElement<{ children?: ReactNode }>(node)) return textOf(node.props.children);
+  return "";
+}
+
+/** Guidance longer than this moves behind an info icon next to its heading. */
+export const LONG_GUIDANCE = 90;
+
+/**
+ * Info icon that shows guidance on demand, so long help text doesn't crowd the page.
+ * Opens on click or tap; Escape or a click elsewhere closes it.
+ */
+export function InfoTip({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const id = useId();
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  return (
+    <span ref={ref} className={cn("relative inline-flex shrink-0", className)}>
+      <button
+        type="button"
+        aria-label={`About ${label}`}
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen(!open)}
+        className={cn("grid size-7 place-items-center rounded-full text-muted transition-colors hover:bg-sunk hover:text-brand-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary", open && "bg-sunk text-brand-ink")}
+      >
+        <Info aria-hidden="true" className="size-[18px]" strokeWidth={1.75} />
+      </button>
+      {open ? (
+        <span id={id} role="note" className="absolute left-0 top-full z-40 mt-2 block w-[min(26rem,calc(100vw-2rem))] border border-line bg-surface p-4 text-left font-sans text-sm font-normal leading-relaxed tracking-normal text-fg-2 shadow-lg">
+          {children}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/** Modal dialog on the native <dialog> element: focus stays inside, Escape closes it. */
+export function Modal({ open, onClose, title, children, footer, size = "md" }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; size?: "md" | "lg" }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (!d) return;
+    if (open && !d.open) d.showModal();
+    if (!open && d.open) d.close();
+  }, [open]);
+  return (
+    <dialog
+      ref={ref}
+      onClose={onClose}
+      onCancel={(e) => {
+        e.preventDefault();
+        onClose();
+      }}
+      aria-labelledby={`${title}-title`}
+      className={cn("m-auto border border-line bg-surface p-0 text-fg shadow-xl backdrop:bg-black/40", size === "lg" ? "w-[min(52rem,calc(100vw-2rem))]" : "w-[min(36rem,calc(100vw-2rem))]")}
+    >
+      {open ? (
+        <div className="grid gap-5 p-6 sm:p-8">
+          <div className="flex items-start justify-between gap-4">
+            <h2 id={`${title}-title`} className="font-serif text-[1.5rem] leading-tight">
+              {title}
+            </h2>
+            <button type="button" aria-label="Close" onClick={onClose} className="grid size-8 place-items-center text-muted hover:bg-sunk hover:text-fg">
+              <X aria-hidden="true" className="size-4" />
+            </button>
+          </div>
+          {children}
+          {footer ? <div className="flex flex-wrap justify-end gap-3 border-t border-line-soft pt-4">{footer}</div> : null}
+        </div>
+      ) : null}
+    </dialog>
   );
 }

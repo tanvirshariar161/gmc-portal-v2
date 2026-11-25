@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import type { Role } from "../domain/types";
-import { AdminOverview, AssignmentsPage, AuditPage, ClassificationPage, CurrencyPage, IncentivesPage, IntegrationsPage, ReliefConfigPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
+import { AdminOverview, AssignmentsPage, AuditPage, ClassificationPage, CurrencyPage, IncentivesPage, IntegrationsPage, ReliefConfigPage, RolesPage, TaxConfigPage, UsersPage } from "../features/admin/AdminPages";
 import { LoginPage, NotFound, RegisterChooser, RegisterCitizen, RegisterCompany, RegisterForeign } from "../features/auth/AuthPages";
 import { CorporateListPage, CorporateReturnPage, CorporateWizardEntry, EmployerHistory } from "../features/employer/CorporatePages";
 import { CompanyProfile, DeclarationPage, EmployeeEditor, EmployeesPage, EmployerOverview, PayrollPage } from "../features/employer/EmployerPages";
@@ -70,6 +70,7 @@ const ROUTES: Route[] = [
   // GMCA administrator
   { path: "/admin", roles: ["ADMIN"], render: () => <AdminOverview /> },
   { path: "/admin/users", roles: ["SYSADMIN"], render: () => <UsersPage /> },
+  { path: "/admin/roles", roles: ["SYSADMIN"], render: () => <RolesPage /> },
   { path: "/admin/assignments", roles: ["ADMIN"], render: () => <AssignmentsPage /> },
   { path: "/admin/tax", roles: ["ADMIN"], render: () => <TaxConfigPage /> },
   { path: "/admin/reliefs", roles: ["ADMIN"], render: () => <ReliefConfigPage /> },

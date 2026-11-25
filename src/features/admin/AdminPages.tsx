@@ -1,4 +1,4 @@
-import { Check, FileSpreadsheet, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Check, Download, FileSpreadsheet, Plus, RotateCcw, Trash2, Upload } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useActor, useDb, useDocumentTitle, useRun, useToast } from "../../app/core";
@@ -10,12 +10,14 @@ import { formatMoney, formatRate, minorToInput, parseAmountInput } from "../../l
 import { cn } from "../../lib/utils";
 import { addCurrency, addExchangeRate, createStaffUser, publishRuleSet, recordIncentive, revokeIncentive, setBankMode, setCurrencyEnabled, setIntegrationMode, setPlatformSetting, setStaffRole, setUserStatus, STAFF_ROLES } from "../../services/admin";
 import { assignmentFor, organizationsOf, setOrganizationOfficer } from "../../services/assignments";
+import { checkOrganizationCsv, importOrganizations, organizationTemplate, type OrganizationImportCheck } from "../../services/organizationImport";
+import { MAX_CSV_BYTES } from "../../lib/payrollCsv";
 import { ruleSetForYear } from "../../services/calc";
 import { buildRuleWorkbook, type WorkbookFocus } from "../../services/ruleWorkbook";
 import { today } from "../../services/clock";
 import { Button } from "../../shared/gmc/Button";
 import { Checkbox, SelectField, TextArea, TextField } from "../../shared/gmc/Form";
-import { Alert, StatusBadge } from "../../shared/gmc/Layout";
+import { Alert, Modal, StatusBadge } from "../../shared/gmc/Layout";
 import { DataTable } from "../../shared/gmc/Table";
 import { ClassificationEditor } from "./ClassificationEditor";
 import { KeyValue, MetricStrip, PageHeader, Section, ownerName, userName } from "../shared/ui";
@@ -75,17 +77,30 @@ function AuditList({ db, entries }: { db: Db; entries: Db["audit"] }) {
 // ---------- Users & roles ----------
 
 export function UsersPage() {
-  useDocumentTitle("Users & roles");
+  useDocumentTitle("Users");
   const db = useDb();
   const actor = useActor();
   const run = useRun();
   const [role, setRole] = useState<"ALL" | Role>("ALL");
-  const [form, setForm] = useState({ name: "", email: "", role: "ASSESSOR" as StaffRole, title: "" });
+  const [creating, setCreating] = useState(false);
   const users = db.users.filter((u) => role === "ALL" || u.role === role);
   return (
     <>
-      <PageHeader title="Users & roles" lead="Create GMCA staff accounts, change staff roles and deactivate accounts. Taxpayer and employer accounts come from registration. Tax rules and officer assignments belong to the GMCA Tax Administrator." />
-      <Section title="Accounts" actions={<SelectField label="Role" value={role} onChange={(e) => setRole(e.target.value as typeof role)} className="w-64"><option value="ALL">All roles</option>{(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}</SelectField>}>
+      <PageHeader title="Users" lead="Every account on the portal. Staff accounts are created here; taxpayer and employer accounts come from registration." />
+      <Section
+        title="Accounts"
+        actions={
+          <>
+            <SelectField label="Role" value={role} onChange={(e) => setRole(e.target.value as typeof role)} className="w-64">
+              <option value="ALL">All roles</option>
+              {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+            </SelectField>
+            <Button className="self-end" onClick={() => setCreating(true)}>
+              <Plus /> Create user
+            </Button>
+          </>
+        }
+      >
         <DataTable
           caption="User accounts"
           rows={users}
@@ -112,40 +127,98 @@ export function UsersPage() {
           ]}
         />
       </Section>
-      <Section title="Create a staff account">
-        <form
-          className="grid max-w-3xl gap-4 sm:grid-cols-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (run((d, a) => createStaffUser(d, a, form), "Account created")) setForm({ name: "", email: "", role: "ASSESSOR", title: "" });
-          }}
-        >
-          <TextField label="Full name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-          <TextField label="Email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          <SelectField label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as StaffRole })}>
-            {STAFF_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-          </SelectField>
-          <TextField label="Job title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-          <div className="sm:col-span-2">
-            <Button type="submit"><Plus /> Create account</Button>
-          </div>
-        </form>
+      <CreateUserModal open={creating} onClose={() => setCreating(false)} />
+    </>
+  );
+}
+
+/** Create user: a staff account with its role. Taxpayer and employer accounts come from registration. */
+function CreateUserModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const run = useRun();
+  const blank = { name: "", email: "", role: "ASSESSOR" as StaffRole, title: "" };
+  const [form, setForm] = useState(blank);
+  const close = () => {
+    setForm(blank);
+    onClose();
+  };
+  return (
+    <Modal
+      open={open}
+      onClose={close}
+      title="Create user"
+      footer={
+        <>
+          <Button variant="secondary" onClick={close}>Cancel</Button>
+          <Button type="submit" form="create-user"><Plus /> Create user</Button>
+        </>
+      }
+    >
+      <form
+        id="create-user"
+        className="grid gap-4 sm:grid-cols-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (run((d, a) => createStaffUser(d, a, form), `Account created for ${form.name.trim()}`)) close();
+        }}
+      >
+        <TextField label="Full name" required autoFocus value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <TextField label="Email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+        <SelectField label="Role" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as StaffRole })} hint={ROLE_DESCRIPTION[form.role]}>
+          {STAFF_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+        </SelectField>
+        <TextField label="Job title" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+      </form>
+    </Modal>
+  );
+}
+
+// ---------- Roles ----------
+
+const ROLE_DESCRIPTION: Record<Role, string> = {
+  INDIVIDUAL: "Files their own returns and pays their own tax. Comes from registration.",
+  EMPLOYER: "Represents a company: employees, monthly TDS, corporate tax. Comes from registration.",
+  ASSESSOR: "Assesses returns assigned to them and manages taxpayer records.",
+  ADMIN: "Sets tax rules, reliefs, incentives and currencies, and assigns officers to organizations.",
+  SYSADMIN: "Creates staff accounts, changes staff roles and deactivates accounts."
+};
+
+export function RolesPage() {
+  useDocumentTitle("Roles");
+  const db = useDb();
+  const roles = Object.keys(ROLE_LABEL) as Role[];
+  return (
+    <>
+      <PageHeader title="Roles" lead="What each role can do. Staff roles are given on the Users page; taxpayer roles come from registration." />
+      <Section title="All roles">
+        <DataTable
+          caption="Roles"
+          rows={roles}
+          rowKey={(r) => r}
+          minWidth="52rem"
+          columns={[
+            { key: "n", header: "Role", cell: (r) => <span className="font-medium">{ROLE_LABEL[r]}</span> },
+            { key: "d", header: "What it does", cell: (r) => <span className="text-sm">{ROLE_DESCRIPTION[r]}</span> },
+            { key: "k", header: "Kind", cell: (r) => (STAFF_ROLES.includes(r as StaffRole) ? "GMCA staff" : "Taxpayer") },
+            { key: "a", header: "Active accounts", cell: (r) => <span className="num">{db.users.filter((u) => u.role === r && u.status === "ACTIVE").length}</span> },
+            { key: "p", header: "Permissions", cell: (r) => <span className="num">{ROLE_PERMISSIONS[r].length}</span> }
+          ]}
+        />
       </Section>
-      <Section title="Role permissions" description="Proposed. GMCA's permission matrix is an open question. Record-level rules also apply: taxpayers see only their own records, assessors act only on cases assigned to them.">
+      <Section title="Permissions by role" description="Proposed; GMCA's permission matrix is still open. Record-level rules also apply: taxpayers see only their own records, officers act only on cases assigned to them.">
         <div className="overflow-x-auto border border-line">
           <table className="w-full min-w-[44rem] text-sm">
             <caption className="sr-only">Permissions by role</caption>
             <thead>
               <tr className="bg-thead text-thead-fg">
                 <th scope="col" className="h-10 px-4 text-left font-medium">Permission</th>
-                {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <th key={r} scope="col" className="px-3 text-center font-medium">{ROLE_LABEL[r].split(" / ")[0]!.replace("GMCA ", "")}</th>)}
+                {roles.map((r) => <th key={r} scope="col" className="px-3 text-center font-medium">{ROLE_LABEL[r].replace("GMCA ", "")}</th>)}
               </tr>
             </thead>
             <tbody>
               {(Object.keys(PERMISSIONS) as (keyof typeof PERMISSIONS)[]).map((p) => (
                 <tr key={p} className="border-b border-line bg-surface">
                   <th scope="row" className="px-4 py-2 text-left font-normal">{PERMISSIONS[p]}</th>
-                  {(Object.keys(ROLE_LABEL) as Role[]).map((r) => <td key={r} className="px-3 py-2 text-center">{ROLE_PERMISSIONS[r].includes(p) ? <Check aria-label="Yes" className="mx-auto size-4 text-ok-fg" /> : <span aria-label="No" className="text-line">—</span>}</td>)}
+                  {roles.map((r) => <td key={r} className="px-3 py-2 text-center">{ROLE_PERMISSIONS[r].includes(p) ? <Check aria-label="Yes" className="mx-auto size-4 text-ok-fg" /> : <span aria-label="No" className="text-line">—</span>}</td>)}
                 </tr>
               ))}
             </tbody>
@@ -166,6 +239,7 @@ export function AssignmentsPage() {
   const activeOfficers = officers.filter((u) => u.status === "ACTIVE");
   const companyName = (id: string) => db.companies.find((c) => c.id === id)?.name ?? id;
   const taxpayersOf = (companyId: string) => new Set(db.employees.filter((e) => e.companyId === companyId && e.taxpayerId && e.status !== "LEFT").map((e) => e.taxpayerId!));
+  const [importing, setImporting] = useState(false);
   const openCases = (companyId: string) => {
     const people = taxpayersOf(companyId);
     return db.assessments.filter((a) => a.status !== "COMPLETED" && (a.owner.kind === "COMPANY" ? a.owner.id === companyId : people.has(a.owner.id))).length;
@@ -176,7 +250,15 @@ export function AssignmentsPage() {
         title="Officer assignments"
         lead="Assign a GMCA tax officer to each organization. Returns from the organization, and from the individuals it employs, go straight to that officer when they are submitted. One officer can cover several organizations."
       />
-      <Section title="Organizations" description="Changing the officer also moves the organization's open cases that nobody has picked up yet. Cases already in progress stay with their officer.">
+      <Section
+        title="Organizations"
+        description="Organizations appear when a representative registers their company (checked against the Corporate Registry), or when you import them from a CSV. Changing an organization's officer also moves its open cases that nobody has picked up yet; cases already in progress stay with their officer."
+        actions={
+          <Button variant="secondary" onClick={() => setImporting(true)}>
+            <Upload /> Import CSV
+          </Button>
+        }
+      >
         <DataTable
           caption="Organizations and their tax officers"
           rows={db.companies}
@@ -185,6 +267,7 @@ export function AssignmentsPage() {
           empty="No organizations are registered yet."
           columns={[
             { key: "n", header: "Organization", cell: (c) => <span className="grid"><span className="font-medium">{c.name}</span><span className="num text-xs text-muted">{c.uen} · {c.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship" : "Company"}</span></span> },
+            { key: "r", header: "Representative", cell: (c) => (c.representatives[0] ? c.representatives[0].name : <span className="text-sm text-muted">{c.importedBy ? "Imported · not registered yet" : "—"}</span>) },
             { key: "p", header: "Employees with tax accounts", cell: (c) => <span className="num">{taxpayersOf(c.id).size}</span> },
             { key: "c", header: "Open cases", cell: (c) => <span className="num">{openCases(c.id)}</span> },
             {
@@ -240,7 +323,98 @@ export function AssignmentsPage() {
           })}
         </ul>
       </Section>
+      <OrganizationImportModal open={importing} onClose={() => setImporting(false)} />
     </>
+  );
+}
+
+/**
+ * Import organizations from a CSV, for example an export from the Corporate Registration Office.
+ * Nothing is saved until the administrator has seen the check; rows with problems are left out.
+ */
+function OrganizationImportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const db = useDb();
+  const run = useRun();
+  const [check, setCheck] = useState<(OrganizationImportCheck & { file: string }) | null>(null);
+  const [error, setError] = useState<string>();
+  const close = () => {
+    setCheck(null);
+    setError(undefined);
+    onClose();
+  };
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([organizationTemplate()], { type: "text/csv;charset=utf-8" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: "gmca-organizations-template.csv" });
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const onFile = async (file: File | undefined) => {
+    setCheck(null);
+    setError(undefined);
+    if (!file) return;
+    if (!/\.csv$/i.test(file.name)) return setError("Choose a .csv file. In Excel, use File › Save As › CSV UTF-8.");
+    if (file.size > MAX_CSV_BYTES) return setError("The file is larger than 1 MB.");
+    setCheck({ ...checkOrganizationCsv(db, await file.text()), file: file.name });
+  };
+  const officerName = (id: string | null) => (id ? userName(db, id) : "—");
+  const n = check?.rows.length ?? 0;
+  return (
+    <Modal
+      open={open}
+      onClose={close}
+      title="Import organizations"
+      size="lg"
+      footer={
+        <>
+          <Button variant="secondary" onClick={close}>Cancel</Button>
+          <Button
+            disabled={!n}
+            onClick={() => {
+              if (check && run((d, a) => importOrganizations(d, a, check.rows), `${n} organization${n === 1 ? "" : "s"} imported`)) close();
+            }}
+          >
+            <Upload /> Import {n ? `${n} organization${n === 1 ? "" : "s"}` : "organizations"}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-fg-2">
+        One organization per row with the columns <span className="font-medium">Name, UEN, Type, Sector, Registered address, Incorporated on</span> and, optionally, the <span className="font-medium">Tax officer email</span> to assign.
+      </p>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={download}><Download /> Download template</Button>
+        <label className="inline-flex cursor-pointer items-center gap-2 border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-sunk focus-within:outline focus-within:outline-2 focus-within:outline-primary">
+          <FileSpreadsheet aria-hidden="true" className="size-4" /> Choose CSV file
+          <input type="file" accept=".csv,text/csv" className="sr-only" onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        {check ? <span className="text-sm text-muted">{check.file}</span> : null}
+      </div>
+      {error ? <Alert tone="rejected" title="Can't read this file">{error}</Alert> : null}
+      {check ? (
+        <div className="grid gap-3">
+          {n ? (
+            <DataTable
+              caption="Organizations ready to import"
+              rows={check.rows}
+              rowKey={(r) => r.uen}
+              columns={[
+                { key: "n", header: "Organization", cell: (r) => <span className="grid"><span className="font-medium">{r.name}</span><span className="num text-xs text-muted">{r.uen}</span></span> },
+                { key: "t", header: "Type", cell: (r) => (r.type === "SOLE_PROPRIETORSHIP" ? "Sole proprietorship" : "Company") },
+                { key: "o", header: "Tax officer", cell: (r) => officerName(r.officerId) }
+              ]}
+            />
+          ) : null}
+          {check.problems.length ? (
+            <Alert tone="action" title={`${check.problems.length} ${check.problems.length === 1 ? "row has" : "rows have"} a problem and won't be imported`}>
+              <ul className="mt-1 grid gap-1">
+                {check.problems.slice(0, 8).map((p) => <li key={`${p.row}-${p.message}`}>Row {p.row}: {p.message}</li>)}
+                {check.problems.length > 8 ? <li>…and {check.problems.length - 8} more.</li> : null}
+              </ul>
+            </Alert>
+          ) : null}
+        </div>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -390,7 +564,7 @@ function RuleWorkbookButton({ rules, focus, draft }: { rules: TaxRuleSet; focus:
         toast("ok", `${fileName} downloaded. Change the yellow cells to see the impact.`);
       }}
     >
-      <FileSpreadsheet /> Download impact workbook (Excel)
+      <FileSpreadsheet /> Download Workbook Template
     </Button>
   );
 }

@@ -111,7 +111,10 @@ const NAV: Record<Role, NavGroup[]> = {
   ],
   SYSADMIN: [
     {
-      items: [{ to: "/admin/users", label: "Users & roles", icon: ShieldCheck }]
+      items: [
+        { to: "/admin/users", label: "Users", icon: Users },
+        { to: "/admin/roles", label: "Roles", icon: ShieldCheck }
+      ]
     }
   ]
 };

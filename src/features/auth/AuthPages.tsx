@@ -665,7 +665,7 @@ export function RegisterCompany() {
   const [rep, setRep] = useState({ name: "", designation: "", email: "", phone: "" });
   const [repDone, setRepDone] = useState(false);
   const step = !result || result.status !== "MATCH" ? "identify" : !confirmed ? "confirm" : repDone ? "verify" : "contact";
-  const already = result?.status === "MATCH" && db.companies.some((c) => c.uen === result.record.uen);
+  const already = result?.status === "MATCH" && db.companies.some((c) => c.uen === result.record.uen && c.representatives.length > 0);
   return (
     <PublicFrame>
       <div className="grid gap-8">

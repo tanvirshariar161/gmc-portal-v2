@@ -10,7 +10,8 @@ import { classForCompany, classForTaxpayer, resolveTaxpayerClass } from "./class
 import { createStaffUser, publishRuleSet, setResidency, setStaffRole, setUserStatus, validateRuleSet } from "./admin";
 import { officerForOwner, setOrganizationOfficer } from "./assignments";
 import { buildRuleWorkbook } from "./ruleWorkbook";
-import { checkNewContact } from "./registration";
+import { checkNewContact, lookupCompany, registerCompany } from "./registration";
+import { checkOrganizationCsv, importOrganizations, organizationTemplate } from "./organizationImport";
 import { checkCredentials, issueOtp, maskDestination, otpDestination, SAMPLE_PASSWORD, signInFactor, startNdiSignIn, verifyOtp } from "./auth";
 import { corporateIssues, declarationByCurrency, ensureCorporateDraft, ensureDeclaration, saveCorporateDraft, saveDeclarationLines, submitDeclaration } from "./employer";
 import { ensureDraftReturn, payAndSubmit, returnScope, saveDraft, submitReturn, syncDkBankStatement, validateReturn } from "./individual";
@@ -407,6 +408,30 @@ describe("officer assignments by organization", () => {
     saveDraft(d, anika, ret.id, { declarationAccepted: true });
     settlePayment(d, anika, payAndSubmit(d, anika, ret.id).id, "SUCCESS");
     expect(d.assessments.find((a) => a.id === ret.assessmentId)).toMatchObject({ status: "ASSIGNED", assignedTo: "usr-kinley" });
+  });
+});
+
+describe("importing organizations", () => {
+  it("checks the CSV, imports good rows with their officer, and lets the representative claim it later", () => {
+    const template = checkOrganizationCsv(d, organizationTemplate());
+    expect(template.problems).toEqual([]);
+    expect(template.rows.map((r) => [r.uen, r.type, r.officerId])).toEqual([["GMC-UEN-2026-0101", "COMPANY", "usr-ugyen"], ["GMC-SP-2026-0102", "SOLE_PROPRIETORSHIP", null]]);
+    const bad = checkOrganizationCsv(d, "Name,UEN,Type,Tax officer email\nDup,GMC-UEN-2025-0001,Company,\nX,GMC-UEN-9,Trust,\nY,GMC-UEN-10,Company,pema@gge.demo.test");
+    expect(bad.rows).toEqual([]);
+    expect(bad.problems.map((p) => p.message).join(" ")).toMatch(/already in the portal.*Company or Sole proprietorship.*isn't an active GMCA tax officer/);
+    expect(checkOrganizationCsv(d, "Company,Number\nA,B").problems[0]!.message).toMatch(/Missing: Name, UEN, Type/);
+    expect(() => importOrganizations(d, actor("usr-ugyen"), template.rows)).toThrow(/role cannot/);
+    const [solar] = importOrganizations(d, actor("usr-admin"), template.rows);
+    expect(solar).toMatchObject({ representatives: [], importedBy: "usr-admin" });
+    expect(officerForOwner(d, { kind: "COMPANY", id: solar!.id })).toBe("usr-ugyen");
+    // The registry has no record of it, but GMCA does: the representative registers and takes it over.
+    const found = lookupCompany(d, "gmc-uen-2026-0101");
+    expect(found.status).toBe("MATCH");
+    if (found.status !== "MATCH") return;
+    const rep = registerCompany(d, found.record, found.reference, { name: "Dawa Lham", designation: "Director", email: "dawa@drukselar.test", phone: "+975 17 555 000" });
+    expect(rep.companyId).toBe(solar!.id);
+    expect(d.companies.filter((c) => c.uen === "GMC-UEN-2026-0101")).toHaveLength(1);
+    expect(() => registerCompany(d, found.record, found.reference, { name: "Other", designation: "Director", email: "other@x.test", phone: "+975 17 555 001" })).toThrow(/already has a tax account/);
   });
 });
 

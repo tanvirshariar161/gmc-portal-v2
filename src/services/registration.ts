@@ -34,6 +34,12 @@ export function checkRepresentative(d: Db, rep: { name: string; designation: str
   checkNewContact(d, rep);
 }
 
+/** An organization GMCA imported that no representative has registered for yet. */
+export function unclaimedImport(d: Db, uen: string) {
+  const u = uen.trim().toUpperCase();
+  return d.companies.find((c) => c.uen === u && c.importedBy && c.representatives.length === 0);
+}
+
 export function lookupCitizen(d: Db, cid: string, dateOfBirth: string): LookupResult<NdiRecord> {
   if (!/^\d{11}$/.test(cid.trim())) throw new ServiceError("A Citizenship ID has 11 digits.");
   if (!dateOfBirth) throw new ServiceError("Enter your date of birth.");
@@ -53,6 +59,15 @@ export function lookupCompany(d: Db, uen: string): LookupResult<RegistryRecord> 
   if (!uen.trim()) throw new ServiceError("Enter the UEN or sole proprietorship number.");
   const r = providers(d.config).registry.lookupCompany(uen);
   logIntegration(d, "COMPANY_REGISTRY", "lookupCompany", uen, r.status, r.reference);
+  // An organization GMCA imported is known even when the (simulated) registry has no record of it.
+  const imported = r.status === "NO_MATCH" ? unclaimedImport(d, uen) : undefined;
+  if (imported) {
+    return {
+      status: "MATCH",
+      reference: `GMCA-IMPORT-${imported.id}`,
+      record: { uen: imported.uen, name: imported.name, type: imported.type, sector: imported.sector, registeredAddress: imported.registeredAddress, incorporatedOn: imported.incorporatedOn, status: "LIVE", directors: [] }
+    };
+  }
   return r;
 }
 
@@ -128,8 +143,20 @@ export function registerCompany(d: Db, record: RegistryRecord, reference: string
   validateContact(rep);
   if (!rep.name.trim()) throw new ServiceError("Enter the representative's full name.");
   if (!rep.designation.trim()) throw new ServiceError("Enter the representative's designation.");
-  if (d.companies.some((c) => c.uen === record.uen)) throw new ServiceError("This company already has a tax account. Ask its representative to add you.", "CONFLICT");
+  const imported = unclaimedImport(d, record.uen);
+  if (!imported && d.companies.some((c) => c.uen === record.uen)) throw new ServiceError("This company already has a tax account. Ask its representative to add you.", "CONFLICT");
   if (emailTaken(d, rep.email)) throw new ServiceError("This email address is already used by another account.", "CONFLICT");
+  const representative = { name: rep.name.trim(), designation: rep.designation.trim(), email: rep.email.trim(), phone: rep.phone.trim() };
+  if (imported) {
+    // Take over the organization GMCA imported: same record, so its officer assignment carries on.
+    imported.representatives = [representative];
+    imported.verification = { provider: "COMPANY_REGISTRY", status: "VERIFIED", reference, checkedAt: nowIso(), simulated: true };
+    const user: User = { id: nextId(d, "USR"), name: representative.name, email: representative.email, role: "EMPLOYER", status: "ACTIVE", companyId: imported.id, title: representative.designation, createdAt: nowIso() };
+    d.users.push(user);
+    audit(d, { id: user.id, name: user.name, role: "EMPLOYER" }, "COMPANY_REGISTERED", "Company", imported.id, `${imported.name} (${imported.uen}), imported by GMCA, claimed by its representative`);
+    notify(d, { role: "ASSESSOR" }, "New company account", `${imported.name} (${imported.uen}) registered.`, "/gmca/taxpayers");
+    return user;
+  }
   const c: Company = {
     id: nextId(d, "CO"),
     uen: record.uen,

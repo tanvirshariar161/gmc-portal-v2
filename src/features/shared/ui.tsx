@@ -8,9 +8,11 @@ import { formatDate } from "../../lib/format";
 import { formatAmount, formatMoney, formatRate } from "../../lib/money";
 import { cn } from "../../lib/utils";
 import { CATEGORY_LABEL, removeDraftDocument, uploadDocument, validateUpload } from "../../services/documents";
-import { StatusBadge, type StatusFamily } from "../../shared/gmc/Layout";
+import { InfoTip, LONG_GUIDANCE, StatusBadge, textOf, type StatusFamily } from "../../shared/gmc/Layout";
 
+/** Page title. A long lead moves behind an info icon before the title; a short one stays visible. */
 export function PageHeader({ title, lead, actions, back }: { title: ReactNode; lead?: ReactNode; actions?: ReactNode; back?: { to: string; label: string } }) {
+  const longLead = textOf(lead).length > LONG_GUIDANCE;
   return (
     <header className="grid gap-4">
       {back ? (
@@ -20,8 +22,11 @@ export function PageHeader({ title, lead, actions, back }: { title: ReactNode; l
       ) : null}
       <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
         <div className="grid max-w-3xl gap-3">
-          <h1 className="display text-[2rem] sm:text-[2.5rem]">{title}</h1>
-          {lead ? <p className="max-w-2xl text-[15px] leading-relaxed text-muted">{lead}</p> : null}
+          <div className="flex items-center gap-2">
+            {lead && longLead ? <InfoTip label={typeof title === "string" ? title : "this page"}>{lead}</InfoTip> : null}
+            <h1 className="display text-[2rem] sm:text-[2.5rem]">{title}</h1>
+          </div>
+          {lead && !longLead ? <p className="max-w-2xl text-[15px] leading-relaxed text-muted">{lead}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-3">{actions}</div> : null}
       </div>
@@ -29,13 +34,18 @@ export function PageHeader({ title, lead, actions, back }: { title: ReactNode; l
   );
 }
 
+/** Section heading. A long description moves behind an info icon before the heading; a short one stays visible. */
 export function Section({ title, description, actions, children, className }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string }) {
+  const longDescription = textOf(description).length > LONG_GUIDANCE;
   return (
     <section className={cn("grid gap-4", className)}>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="grid gap-1">
-          <h2 className="font-serif text-xl text-fg sm:text-[1.375rem]">{title}</h2>
-          {description ? <p className="max-w-2xl text-sm text-muted">{description}</p> : null}
+          <div className="flex items-center gap-1.5">
+            {description && longDescription ? <InfoTip label={typeof title === "string" ? title : "this section"}>{description}</InfoTip> : null}
+            <h2 className="font-serif text-xl text-fg sm:text-[1.375rem]">{title}</h2>
+          </div>
+          {description && !longDescription ? <p className="max-w-2xl text-sm text-muted">{description}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
       </div>

@@ -70,6 +70,8 @@ export type Company = {
   verification: Verification;
   representatives: { name: string; email: string; designation: string; phone: string }[];
   registeredAt: string;
+  /** Set when GMCA imported the organization from a CSV; its first representative takes it over at registration. */
+  importedBy?: ID;
 };
 
 export type CompanyTaxIncentive = {
