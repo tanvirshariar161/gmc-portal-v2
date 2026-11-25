@@ -508,7 +508,7 @@ function TdsWorking({ db, ret, rules }: { db: Db; ret: IndividualTaxReturn; rule
     const inBracket = months.filter((m) => bracketFor(m.gross, rules.tdsBands) === b);
     return { b, pay: inBracket.reduce((s, m) => s + m.gross, 0), tds: inBracket.reduce((s, m) => s + m.tds, 0), count: inBracket.length };
   });
-  const whole = (m: number) => `$${Math.round(m / 100).toLocaleString("en-US")}`;
+  const whole = (m: number) => formatMoney(m);
   return (
     <section className="grid gap-4" aria-labelledby="tds-h">
       <h2 id="tds-h" className="font-serif text-xl">
@@ -567,7 +567,7 @@ function TdsWorking({ db, ret, rules }: { db: Db; ret: IndividualTaxReturn; rule
 function TaxStep({ db, ret, rules, snapshot }: { db: Db; ret: IndividualTaxReturn; rules: TaxRuleSet; snapshot: CalculationSnapshot }) {
   const f = snapshot.figures!;
   const bands = bandBreakdown(f.chargeableMinor, rules.individualBands);
-  const whole = (m: number) => `$${Math.round(m / 100).toLocaleString("en-US")}`;
+  const whole = (m: number) => formatMoney(m);
   const reliefLines = snapshot.lines.filter((l) => l.key.startsWith("rel-"));
   return (
     <div className="grid gap-8">
@@ -576,13 +576,13 @@ function TaxStep({ db, ret, rules, snapshot }: { db: Db; ret: IndividualTaxRetur
         <h2 id="tax-h" className="font-serif text-xl">
           Tax for the year
         </h2>
-        <dl className="grid border border-line sm:grid-cols-3">
+        <dl className="grid border border-line bg-surface sm:grid-cols-3">
           {[
             ["Assessable income", f.taxableMinor],
             ["Reliefs", f.reliefsMinor],
             ["Chargeable income", f.chargeableMinor]
           ].map(([label, value], i) => (
-            <div key={label as string} className={cn("grid gap-1 px-5 py-4", i > 0 && "border-t border-line sm:border-l sm:border-t-0")}>
+            <div key={label as string} className={cn("grid gap-1 px-5 py-4", i > 0 && "border-t border-line-soft sm:border-l sm:border-t-0")}>
               <dt className="text-sm text-muted">{label}</dt>
               <dd className="font-serif text-2xl">
                 <Money cents={value as number} />
