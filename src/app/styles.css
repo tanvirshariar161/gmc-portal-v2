@@ -30,6 +30,10 @@
   --table-head-fg: #1f1a14;
   --nav-taxpayer: #424b76;
   --nav-staff: #682630;
+  /* Portal marker in the top nav, one colour per kind of user. */
+  --role-staff: #762a35;
+  --role-individual: #424b76;
+  --role-representative: #2e6b4f;
   --motif: url("/bg-light.svg");
   color-scheme: light;
 }
@@ -62,6 +66,9 @@
   --table-head-fg: #f0ebe2;
   --nav-taxpayer: #6c76a8;
   --nav-staff: #9a3d4a;
+  --role-staff: #b5525f;
+  --role-individual: #7d86bd;
+  --role-representative: #5fa583;
   color-scheme: dark;
 }
 

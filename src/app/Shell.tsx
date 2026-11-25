@@ -200,7 +200,10 @@ export function Shell({ children }: { children: ReactNode }) {
       : user.role === "EMPLOYER"
         ? db.companies.find((c) => c.id === user.companyId)?.name ?? "Employer"
         : `GMCA · ${user.title ?? ROLE_LABEL[user.role]}`;
-  const portal = user.role === "INDIVIDUAL" || user.role === "EMPLOYER" ? "Taxpayer Portal" : "GMCA Administration Portal";
+  const portal = user.role === "INDIVIDUAL" || user.role === "EMPLOYER" ? "Tax Payer Portal" : "GMCA Administration Portal";
+  // Diamond marker: GMCA staff, individual taxpayers and representatives each have their own colour.
+  const portalColor = user.role === "INDIVIDUAL" ? "var(--role-individual)" : user.role === "EMPLOYER" ? "var(--role-representative)" : "var(--role-staff)";
+  const portalMark = <span aria-hidden="true" className="size-[15px] shrink-0 rotate-45" style={{ background: portalColor }} />;
   const persistError = getPersistError();
   const messagesPath = user.role === "ASSESSOR" ? "/gmca/notifications" : user.role === "ADMIN" || user.role === "SYSADMIN" ? "/admin/notifications" : "/messages";
 
@@ -218,7 +221,10 @@ export function Shell({ children }: { children: ReactNode }) {
             <Link to={HOME[user.role]} aria-label="Home">
               <Logo dark={dark} />
             </Link>
-            <span className="hidden border-l border-line pl-4 text-sm text-muted md:block">{portal}</span>
+            <span className="hidden items-center gap-3 border-l border-line pl-5 md:flex">
+              {portalMark}
+              <span className="text-[15px] text-fg">{portal}</span>
+            </span>
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
             <button type="button" onClick={toggleTheme} className="grid size-10 place-items-center text-fg-2 hover:bg-sunk" aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}>
@@ -275,7 +281,10 @@ export function Shell({ children }: { children: ReactNode }) {
           <button type="button" aria-label="Close menu" className="absolute inset-0 bg-black/40" onClick={() => setDrawer(false)} />
           <div className="absolute left-0 top-0 flex h-full w-[85%] max-w-[320px] flex-col overflow-y-auto border-r border-line bg-surface p-4 shadow-pop">
             <div className="mb-4 flex items-center justify-between">
-              <span className="text-sm text-muted">{portal}</span>
+              <span className="flex items-center gap-2.5 text-sm text-fg">
+                {portalMark}
+                {portal}
+              </span>
               <button type="button" className="grid size-10 place-items-center" aria-label="Close menu" onClick={() => setDrawer(false)}>
                 <X className="size-5" />
               </button>
