@@ -147,7 +147,7 @@ function CredentialsForm({ onSecondStep }: { onSecondStep: (p: Pending) => void 
       <h2 id="signin" className="font-serif text-[1.875rem] leading-tight">
         Sign in
       </h2>
-      <p className="text-[15px] leading-relaxed text-muted">Use your GMC account. Bhutanese citizens then confirm in the Bhutan NDI app; foreign nationals and company representatives enter a one-time code sent to their phone. A password alone can't open your tax records.</p>
+      <p className="text-[15px] leading-relaxed text-muted">Use your GMC account. Bhutanese citizens then confirm in the Bhutan NDI app; foreign nationals and corporate tax payers enter a one-time code sent to their phone. A password alone can't open your tax records.</p>
       {error ? (
         <Alert tone="rejected" title="Couldn't sign you in">
           {error}

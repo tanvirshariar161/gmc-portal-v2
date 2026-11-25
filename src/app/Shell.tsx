@@ -201,8 +201,8 @@ export function Shell({ children }: { children: ReactNode }) {
         ? db.companies.find((c) => c.id === user.companyId)?.name ?? "Employer"
         : `GMCA · ${user.title ?? ROLE_LABEL[user.role]}`;
   const portal = user.role === "INDIVIDUAL" || user.role === "EMPLOYER" ? "Tax Payer Portal" : "GMCA Administration Portal";
-  // Diamond marker: GMCA staff, individual taxpayers and representatives each have their own colour.
-  const portalColor = user.role === "INDIVIDUAL" ? "var(--role-individual)" : user.role === "EMPLOYER" ? "var(--role-representative)" : "var(--role-staff)";
+  // Diamond marker: GMCA staff, individual taxpayers and corporate tax payers each have their own colour.
+  const portalColor = user.role === "INDIVIDUAL" ? "var(--role-individual)" : user.role === "EMPLOYER" ? "var(--role-corporate)" : "var(--role-staff)";
   const portalMark = <span aria-hidden="true" className="size-[15px] shrink-0 rotate-45" style={{ background: portalColor }} />;
   const persistError = getPersistError();
   const messagesPath = user.role === "ASSESSOR" ? "/gmca/notifications" : user.role === "ADMIN" || user.role === "SYSADMIN" ? "/admin/notifications" : "/messages";

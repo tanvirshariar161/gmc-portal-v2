@@ -346,7 +346,7 @@ describe("sign-in", () => {
   });
 });
 
-describe("one-time codes for foreign nationals and representatives", () => {
+describe("one-time codes for foreign nationals and corporate tax payers", () => {
   it("sends them a code instead of an NDI request, to the phone on their record", () => {
     const anika = d.users.find((u) => u.id === "usr-anika")!;
     const pema = d.users.find((u) => u.id === "usr-pema")!;

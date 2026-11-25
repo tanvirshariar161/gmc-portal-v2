@@ -35,7 +35,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 
 export const ROLE_LABEL: Record<Role, string> = {
   INDIVIDUAL: "Individual taxpayer",
-  EMPLOYER: "Representatives",
+  EMPLOYER: "Corporate Tax Payer",
   ASSESSOR: "GMCA Tax Officer",
   ADMIN: "GMCA Tax Administrator",
   SYSADMIN: "GMCA System Admin"

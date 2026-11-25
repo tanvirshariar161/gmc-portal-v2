@@ -132,7 +132,7 @@ function base(): Db {
   const users: User[] = [
     { id: "usr-karma", name: "Karma Dorji", email: "karma.dorji@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-karma", createdAt: SEED_AT, demoLabel: "Citizen taxpayer" },
     { id: "usr-anika", name: "Anika Rao", email: "anika.rao@demo.gmca.test", role: "INDIVIDUAL", status: "ACTIVE", taxpayerId: "tp-anika", createdAt: SEED_AT, demoLabel: "Foreign taxpayer" },
-    { id: "usr-pema", name: "Pema Wangchuk", email: "pema@gge.demo.test", role: "EMPLOYER", status: "ACTIVE", companyId: "co-gge", title: "Director", createdAt: SEED_AT, demoLabel: "Representatives" },
+    { id: "usr-pema", name: "Pema Wangchuk", email: "pema@gge.demo.test", role: "EMPLOYER", status: "ACTIVE", companyId: "co-gge", title: "Director", createdAt: SEED_AT, demoLabel: "Corporate Tax Payer" },
     { id: "usr-ugyen", name: "Ugyen Tshering", email: "ugyen.tshering@gmca.demo.test", role: "ASSESSOR", status: "ACTIVE", title: "Tax Officer (Assessment)", createdAt: SEED_AT, demoLabel: "GMCA Tax Officer" },
     { id: "usr-admin", name: "Deki Pelden", email: "deki.pelden@gmca.demo.test", role: "ADMIN", status: "ACTIVE", title: "Tax Administrator", createdAt: SEED_AT, demoLabel: "GMCA Tax Administrator" },
     { id: "usr-sysadmin", name: "Tandin Wangdi", email: "tandin.wangdi@gmca.demo.test", role: "SYSADMIN", status: "ACTIVE", title: "System Administrator", createdAt: SEED_AT, demoLabel: "GMCA System Admin" },
